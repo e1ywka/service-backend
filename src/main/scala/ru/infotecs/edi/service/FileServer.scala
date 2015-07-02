@@ -1,63 +1,58 @@
 package ru.infotecs.edi.service
 
-import akka.actor.{ActorRef, Stash, Props, Actor}
-import akka.actor.Actor.Receive
+import akka.actor.{Stash, Props, Actor}
 import akka.pattern._
 
-import scala.concurrent.Future
 import scala.concurrent.duration._
-import scala.reflect.ClassTag
+import scala.util.{Success, Failure}
 
+case object UploadSucceed
+case object UploadFailed
 case class FilePart(fileId: String, chunk: Array[Byte])
 case class AuthorizedFilePart(token: String, filePart: FilePart)
 
-class FileServer(authServer: ActorRef) extends Actor with Stash {
+/**
+ * FileServer handles file chunks and transmits them to File Store.
+ * There are available, unavailable and staging states.
+ */
+// TODO add staging state to check File Store is available
+class FileServer extends Actor with Stash {
 
   import context._
 
   val fileServerClient = actorOf(Props[FileServerClient])
-  val circuitBreaker = new CircuitBreaker(context.system.scheduler, 3, 10 seconds, 1 minute)
 
-  circuitBreaker.onOpen {
-    self ! "Opened"
-  }
-
-  circuitBreaker.onClose {
-    self ! "Closed"
-  }
-
-  def serviceAvailable: Receive = {
-    case "Opened" => become(serviceUnavailable)
+  def available: Receive = {
     case ServiceStatus => "Available"
-    case m: FilePart => {
-      val message = m
-      (authServer ? "token").mapTo[String].map(token => AuthorizedFilePart(token, message)).pipeTo(self)
-    }
 
     case m@AuthorizedFilePart(token, filePart) => {
-      val message = m
-      val sendFuture = circuitBreaker.withCircuitBreaker {
-        fileServerClient ? m
-      }
-      sendFuture.onFailure {
-        case _ => self ! message
+      val s = sender
+      (fileServerClient ? m).onComplete {
+        case Success => s ! UploadSucceed
+        case Failure(e: CircuitBreakerOpenException) => {
+          s ! UploadFailed
+          become(unavailable) // CB is open so we stop sending files
+        }
       }
     }
   }
 
-  def serviceUnavailable: Receive = {
-    case "Opened" =>
-    case "Closed" => {
-      become(serviceAvailable)
-      unstashAll()
-    }
+  def unavailable: Receive = {
     case ServiceStatus => "Unavailable"
     case FilePart => stash()
   }
 
-  def receive: Receive = serviceAvailable
+  def receive: Receive = available
 }
 
+/**
+ * File store client. Implements specific chunk transfer.
+ * Under hood uses spray client.
+ */
+// TODO prestart: establish connection to File Store and notify parent
+// TODO implement client as broker to distribute sending in several tcp connections and/or several nodes
 class FileServerClient extends Actor {
-  def receive: Actor.Receive = ???
+  val circuitBreaker = new CircuitBreaker(context.system.scheduler, 3, 10 seconds, 1 minute)
+
+  def receive: Receive = ???
 }
