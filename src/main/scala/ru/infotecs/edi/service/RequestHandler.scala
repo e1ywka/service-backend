@@ -9,15 +9,22 @@ import spray.can.Http
 import spray.http._
 import HttpMethods._
 
+import scala.collection.mutable
+
 case object ServiceStatus
 
 class RequestHandler extends Actor {
+  import context._
+
   def receive: Receive = {
     case _: Http.Connected => sender ! Http.Register(self)
 
     case HttpRequest(GET, Uri.Path("/status"), _, _, _) => {
-      val asender = sender
-      val fileServer
+      sender ! HttpResponse(status = 200, entity = "Server is working")
+    }
+
+    case HttpRequest(POST, Uri.Path("/upload"), headers, HttpEntity.NonEmpty(ContentType(MediaTypes.`multipart/form-data`, None), data), _) => {
+
     }
   }
 }

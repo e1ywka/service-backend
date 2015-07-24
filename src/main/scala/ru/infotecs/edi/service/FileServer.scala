@@ -2,6 +2,7 @@ package ru.infotecs.edi.service
 
 import akka.actor.{Stash, Props, Actor}
 import akka.pattern._
+import akka.util.Timeout
 
 import scala.concurrent.duration._
 import scala.util.{Success, Failure}
@@ -19,6 +20,7 @@ case class AuthorizedFilePart(token: String, filePart: FilePart)
 class FileServer extends Actor with Stash {
 
   import context._
+  implicit val timeout = Timeout(10 seconds)
 
   val fileServerClient = actorOf(Props[FileServerClient])
 
@@ -28,7 +30,7 @@ class FileServer extends Actor with Stash {
     case m@AuthorizedFilePart(token, filePart) => {
       val s = sender
       (fileServerClient ? m).onComplete {
-        case Success => s ! UploadSucceed
+        case Success(v) => s ! UploadSucceed
         case Failure(e: CircuitBreakerOpenException) => {
           s ! UploadFailed
           become(unavailable) // CB is open so we stop sending files
@@ -52,6 +54,8 @@ class FileServer extends Actor with Stash {
 // TODO prestart: establish connection to File Store and notify parent
 // TODO implement client as broker to distribute sending in several tcp connections and/or several nodes
 class FileServerClient extends Actor {
+  implicit val ec = context.system.dispatcher
+
   val circuitBreaker = new CircuitBreaker(context.system.scheduler, 3, 10 seconds, 1 minute)
 
   def receive: Receive = ???
