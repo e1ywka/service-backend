@@ -75,6 +75,7 @@ class RequestHandler extends Actor {
       |    container: document.getElementById('container'), // ... or DOM Element itself
       |
       |    url : "/upload",
+      |    chunk_size: "100kb",
       |
       |    filters : {
       |        max_file_size : '10mb'
