@@ -28,7 +28,7 @@ class FileUploading extends Actor {
 
     case Terminated(h) => {
       fileHandlers.retain((_, handler) => handler.equals(h))
-      if (fileHandlers.size == 0) {
+      if (fileHandlers.isEmpty) {
         context.stop(self)
       }
     }
@@ -58,7 +58,24 @@ class FileHandler extends Actor with Stash {
       }
   }
 
-  val uploading: Receive = {
+  val caching: Receive = {
+    case FileChunk((chunk, chunks), filePart, fileName) =>
+      if (chunk == 0) {
+        nextChunk = 1
+        totalChunks = chunks
+        // выполнять парсинг файла
+        Future { println(filePart.entity.asString) }
+        if (chunks == 1) {
+          context become uploaded
+        } else {
+          context become uploading
+        }
+      } else {
+        stash()
+      }
+  }
+
+  val uploadingToFs: Receive = {
     case FileChunk((chunk, _), filePart, fileName) =>
       if (chunk == nextChunk) {
         nextChunk += 1
