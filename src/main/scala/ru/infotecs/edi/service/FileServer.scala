@@ -7,10 +7,12 @@ import akka.util.Timeout
 import scala.concurrent.duration._
 import scala.util.{Success, Failure}
 
-case object UploadSucceed
-case object UploadFailed
-case class FilePart(fileId: String, chunk: Array[Byte])
-case class AuthorizedFilePart(token: String, filePart: FilePart)
+object FileServer {
+  case object UploadSucceed
+  case object UploadFailed
+  case class FilePart(fileId: String, chunk: Array[Byte])
+  case class AuthorizedFilePart(token: String, filePart: FilePart)
+}
 
 /**
  * FileServer handles file chunks and transmits them to File Store.
@@ -27,12 +29,12 @@ class FileServer extends Actor with Stash {
   def available: Receive = {
     case ServiceStatus => "Available"
 
-    case m@AuthorizedFilePart(token, filePart) => {
+    case m@FileServer.AuthorizedFilePart(token, filePart) => {
       val s = sender
       (fileServerClient ? m).onComplete {
-        case Success(v) => s ! UploadSucceed
+        case Success(v) => s ! FileServer.UploadSucceed
         case Failure(e: CircuitBreakerOpenException) => {
-          s ! UploadFailed
+          s ! FileServer.UploadFailed
           become(unavailable) // CB is open so we stop sending files
         }
       }
@@ -41,7 +43,7 @@ class FileServer extends Actor with Stash {
 
   def unavailable: Receive = {
     case ServiceStatus => "Unavailable"
-    case FilePart => stash()
+    case FileServer.FilePart => stash()
   }
 
   def receive: Receive = available
