@@ -5,22 +5,24 @@ package ru.infotecs.edi.service
 
 import java.io.{ByteArrayInputStream, InputStreamReader, BufferedReader, StringReader}
 
-import akka.actor.Actor
+import akka.actor.{Props, Actor}
 import akka.actor.Actor.Receive
 import spray.can.Http
 import spray.http._
 import HttpMethods._
-import spray.httpx.unmarshalling.{FormDataUnmarshallers, Unmarshaller}
+import spray.httpx.unmarshalling.{BasicUnmarshallers, PimpedHttpEntity, FormDataUnmarshallers}
 
 import scala.collection.mutable
+import scala.util.Try
 
 case object ServiceStatus
 
 class RequestHandler extends Actor {
   import context._
+  val fileUploadingHandler = actorOf(Props[FileUploading])
 
   def receive: Receive = {
-    case _: Http.Connected => sender ! Http.Register(self)
+    case _: Http.Connected => sender ! Http.Register(system.actorOf(Props[RequestHandler]))
 
     case HttpRequest(GET, Uri.Path("/status"), _, _, _) => {
       sender ! HttpResponse(status = 200, entity = "Server is working")
@@ -33,15 +35,29 @@ class RequestHandler extends Actor {
     case HttpRequest(POST, Uri.Path("/upload"), headers, entity, _) => {
       import FormDataUnmarshallers._
 
-      Unmarshaller.unmarshal[MultipartFormData](entity) match {
+      entity.as[MultipartFormData] match {
         case Left(e) => sender ! HttpResponse(status = 500, "Unsupported media type")
         case Right(data) => {
-          val fileUpload = data.get("file").foreach(body => println(body.entity.asString))
+          val fileChunk = for {
+            chunksBodyPart <- data.get("chunks")
+            chunks <- Try { chunksBodyPart.entity.asString.toInt }.toOption
+            chunkBodyPart <- data.get("chunk")
+            chunk <- Try { chunkBodyPart.entity.asString.toInt }.toOption
+            file <- data.get("file")
+            fileNameBodyPart <- data.get("name")
+          } yield FileUploading.FileChunk((chunk, chunks), file, fileNameBodyPart.entity.asString(HttpCharsets.`UTF-8`))
+          fileChunk match {
+            case Some(f) => {
+              fileUploadingHandler ! f
+              sender ! HttpResponse(status = 204)
+            }
+            case None => sender ! HttpResponse(status = 500, "Unsupported media type")
+          }
         }
       }
 
       //println(new BufferedReader(new InputStreamReader(new ByteArrayInputStream(data.toByteArray), charset.getOrElse(HttpCharsets.`UTF-8`).nioCharset)))
-      sender ! HttpResponse(status = 200, "Ok")
+      //sender ! HttpResponse(status = 200, "Ok")
     }
   }
 
@@ -75,7 +91,7 @@ class RequestHandler extends Actor {
       |    container: document.getElementById('container'), // ... or DOM Element itself
       |
       |    url : "/upload",
-      |    chunk_size: "100kb",
+      |    chunk_size: "10kb",
       |
       |    filters : {
       |        max_file_size : '10mb'
