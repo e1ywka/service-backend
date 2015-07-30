@@ -3,16 +3,12 @@
  */
 package ru.infotecs.edi.service
 
-import java.io.{ByteArrayInputStream, InputStreamReader, BufferedReader, StringReader}
-
 import akka.actor.{Props, Actor}
-import akka.actor.Actor.Receive
 import spray.can.Http
 import spray.http._
 import HttpMethods._
-import spray.httpx.unmarshalling.{BasicUnmarshallers, PimpedHttpEntity, FormDataUnmarshallers}
+import spray.httpx.unmarshalling.{PimpedHttpEntity, FormDataUnmarshallers}
 
-import scala.collection.mutable
 import scala.util.Try
 
 case object ServiceStatus
@@ -92,6 +88,7 @@ class RequestHandler extends Actor {
       |
       |    url : "/upload",
       |    chunk_size: "10kb",
+      |    unique_names: true,
       |
       |    filters : {
       |        max_file_size : '10mb'
