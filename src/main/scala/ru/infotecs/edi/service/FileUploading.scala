@@ -3,6 +3,7 @@ package ru.infotecs.edi.service
 import akka.actor._
 import akka.pattern.{ask, pipe}
 import akka.util.{ByteString, Timeout}
+import ru.infotecs.edi.service.FileHandler.FlushTo
 import ru.infotecs.edi.service.FileUploading.{FileChunk, FileChunkUploaded, UploadFinished}
 import spray.http.BodyPart
 
@@ -16,7 +17,6 @@ object FileUploading {
   case object FileChunkUploaded
 
   case class UploadFinished(fileName: String, needParsing: Boolean)
-
 }
 
 /**
@@ -40,7 +40,7 @@ class FileUploading extends Actor {
       handler ? f pipeTo recipient
     }
 
-    case UploadFinished(fileName, true) =>
+    case UploadFinished(fileName, true) => sender ! FlushTo(actorOf(Props[Parser]))
     case UploadFinished(fileName, false) =>
 
     case Terminated(h) => {
@@ -73,6 +73,7 @@ object FileHandler {
    */
   case class Init(totalChunks: Int)
 
+  case class FlushTo(recipient: ActorRef)
 }
 
 /**
@@ -88,7 +89,7 @@ abstract sealed class FileHandler(parent: ActorRef) extends Actor with Stash {
 
   def needParsing: Boolean
 
-  val uploaded: Receive = {
+  def uploaded: Receive = {
     case _: FileChunk => {
       // логировать сообщение об ошибке
       println("boo!")
@@ -135,8 +136,12 @@ class BufferingFileHandler(parent: ActorRef) extends FileHandler(parent: ActorRe
   def handlingUpload(fileChunk: FileChunk) = {
     import fileChunk._
     // выполнять парсинг файла
-    fileBuilder :+ file.entity.data.toByteString
+    fileBuilder = fileBuilder ++ file.entity.data.toByteString
     Future.successful(FileChunkUploaded)
+  }
+
+  override def uploaded: Receive = super.uploaded orElse {
+    case FlushTo(ref) => ref ! fileBuilder
   }
 }
 
