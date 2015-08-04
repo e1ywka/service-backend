@@ -119,6 +119,7 @@ abstract sealed class FileHandler(parent: ActorRef) extends Actor with Stash {
       totalChunks = chunks
       context become handling
     }
+    case chunk@FileChunk => sender ! Status.Failure(new Exception("FileHandler is in Idle state"))
   }
 
   def receive = idle
