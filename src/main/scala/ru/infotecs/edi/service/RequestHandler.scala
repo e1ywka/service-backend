@@ -3,19 +3,26 @@
  */
 package ru.infotecs.edi.service
 
-import akka.actor.{Props, Actor}
+import akka.actor.{Actor, Props}
+import akka.pattern.ask
+import akka.util.Timeout
+import ru.infotecs.edi.service.FileUploading.FileChunkUploaded
 import spray.can.Http
+import scala.concurrent.duration._
+import spray.http.HttpMethods._
 import spray.http._
-import HttpMethods._
-import spray.httpx.unmarshalling.{PimpedHttpEntity, FormDataUnmarshallers}
+import spray.httpx.unmarshalling.{FormDataUnmarshallers, PimpedHttpEntity}
 
-import scala.util.Try
+import scala.util.{Failure, Success, Try}
 
 case object ServiceStatus
 
 class RequestHandler extends Actor {
+
   import context._
+
   val fileUploadingHandler = actorOf(Props[FileUploading])
+  implicit val timeout: Timeout = 10 seconds
 
   def receive: Receive = {
     case _: Http.Connected => sender ! Http.Register(system.actorOf(Props[RequestHandler]))
@@ -36,16 +43,24 @@ class RequestHandler extends Actor {
         case Right(data) => {
           val fileChunk = for {
             chunksBodyPart <- data.get("chunks")
-            chunks <- Try { chunksBodyPart.entity.asString.toInt }.toOption
+            chunks <- Try {
+              chunksBodyPart.entity.asString.toInt
+            }.toOption
             chunkBodyPart <- data.get("chunk")
-            chunk <- Try { chunkBodyPart.entity.asString.toInt }.toOption
+            chunk <- Try {
+              chunkBodyPart.entity.asString.toInt
+            }.toOption
             file <- data.get("file")
             fileNameBodyPart <- data.get("name")
           } yield FileUploading.FileChunk((chunk, chunks), file, fileNameBodyPart.entity.asString(HttpCharsets.`UTF-8`))
+
           fileChunk match {
             case Some(f) => {
-              fileUploadingHandler ! f
-              sender ! HttpResponse(status = 204)
+              val client = sender
+              fileUploadingHandler ? f onComplete {
+                case Success(FileChunkUploaded) => client ! HttpResponse(status = 204)
+                case Failure(e) => client ! HttpResponse(status = 500, "Unable to save file. Excpetion message: " + e.getMessage)
+              }
             }
             case None => sender ! HttpResponse(status = 500, "Unsupported media type")
           }

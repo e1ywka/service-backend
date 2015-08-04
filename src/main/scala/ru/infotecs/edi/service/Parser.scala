@@ -11,9 +11,6 @@ object Parser {
 }
 
 class Parser(id: String, fileName: String, fileHandler: ActorRef) extends Actor {
-  val idle: Receive = {
-
-  }
 
   def receive: Receive = ???
 }

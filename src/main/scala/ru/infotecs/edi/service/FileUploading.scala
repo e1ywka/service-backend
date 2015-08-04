@@ -1,94 +1,92 @@
 package ru.infotecs.edi.service
 
 import akka.actor._
-import akka.actor.Actor.Receive
-import ru.infotecs.edi.service.FileUploading.FileChunk
+import akka.pattern.{ask, pipe}
+import akka.util.{ByteString, Timeout}
+import ru.infotecs.edi.service.FileUploading.{FileChunk, FileChunkUploaded, UploadFinished}
 import spray.http.BodyPart
 
 import scala.concurrent.Future
+import scala.concurrent.duration._
 
 object FileUploading {
+
   case class FileChunk(chunkOrder: (Int, Int), file: BodyPart, fileName: String)
+
+  case object FileChunkUploaded
+
+  case class UploadFinished(fileName: String, needParsing: Boolean)
+
 }
 
 /**
  * FileUploading aggregates uploaded file chunks and performs file parsing.
  */
 class FileUploading extends Actor {
+
   import context._
+
+  val bufferingFileHandler = Props.create(classOf[BufferingFileHandler], self)
+  val redirectFileHandler = Props.create(classOf[RedirectFileHandler], self)
 
   val fileHandlers = new scala.collection.mutable.HashMap[String, ActorRef]
 
+  implicit val timeout: Timeout = 3 seconds
+
   def receive: Receive = {
-    case f@FileChunk(_, _, fileName) => {
-      val handler = fileHandlers.getOrElse(fileName, actorOf(Props[FileHandler]))
-      watch(handler)
-      handler ! f
+    case f@FileChunk((_, chunks), _, fileName) => {
+      val handler = fileHandlers.getOrElseUpdate(fileName, createFileHandler(fileName, chunks))
+      val recipient = sender
+      handler ? f pipeTo recipient
     }
 
+    case UploadFinished(fileName, true) =>
+    case UploadFinished(fileName, false) =>
+
     case Terminated(h) => {
-      fileHandlers.retain((_, handler) => handler.equals(h))
+      fileHandlers.retain((_, handler) => !handler.equals(h))
       if (fileHandlers.isEmpty) {
         context.stop(self)
       }
     }
   }
+
+  def createFileHandler(fileName: String, chunks: Int): ActorRef = {
+    val actor: ActorRef = {
+      if (fileName.toLowerCase.endsWith("xml")) {
+        actorOf(bufferingFileHandler)
+      } else {
+        actorOf(redirectFileHandler)
+      }
+    }
+    watch(actor)
+    actor ! FileHandler.Init(chunks)
+    actor
+  }
 }
 
-class FileHandler extends Actor with Stash {
-  var fileStream = Stream.empty
+object FileHandler {
+
+  /**
+   * Инициализация загрузки.
+   * @param totalChunks количество частей файла.
+   */
+  case class Init(totalChunks: Int)
+
+}
+
+/**
+ * Базовый класс для обработки загружаемого файла.
+ * Выполняет контроль очереди частей файла.
+ */
+abstract sealed class FileHandler(parent: ActorRef) extends Actor with Stash {
   var nextChunk = 0
   var totalChunks = 0
   implicit val ec = context.system.dispatcher
 
-  val idle: Receive = {
-    case FileChunk((chunk, chunks), filePart, fileName) =>
-      if (chunk == 0) {
-        nextChunk = 1
-        totalChunks = chunks
-        // выполнять парсинг файла
-        Future { println(filePart.entity.asString) }
-        if (chunks == 1) {
-          context become uploaded
-        } else {
-          context become uploading
-        }
-      } else {
-        stash()
-      }
-  }
+  def handlingUpload(fileChunk: FileChunk): Future[FileChunkUploaded.type]
 
-  val caching: Receive = {
-    case FileChunk((chunk, chunks), filePart, fileName) =>
-      if (chunk == 0) {
-        nextChunk = 1
-        totalChunks = chunks
-        // выполнять парсинг файла
-        Future { println(filePart.entity.asString) }
-        if (chunks == 1) {
-          context become uploaded
-        } else {
-          context become uploading
-        }
-      } else {
-        stash()
-      }
-  }
-
-  val uploadingToFs: Receive = {
-    case FileChunk((chunk, _), filePart, fileName) =>
-      if (chunk == nextChunk) {
-        nextChunk += 1
-        // выполнять парсинг файла
-        Future { println(filePart.entity.asString) }
-
-        if (nextChunk == totalChunks) {
-          context become uploaded
-        }
-      } else {
-        stash()
-      }
-  }
+  def needParsing: Boolean
 
   val uploaded: Receive = {
     case _: FileChunk => {
@@ -97,5 +95,63 @@ class FileHandler extends Actor with Stash {
     }
   }
 
+  val handling: Receive = {
+    case f@FileChunk((chunk, chunks), filePart, fileName) => {
+      unstashAll()
+      if (chunk == nextChunk) {
+        nextChunk += 1
+        // выполнять парсинг файла
+        val recipient = sender
+        handlingUpload(f).pipeTo(recipient)
+        if (nextChunk == totalChunks) {
+          context become uploaded
+          parent ! UploadFinished(fileName, needParsing)
+        }
+      } else {
+        stash()
+      }
+    }
+  }
+
+  val idle: Receive = {
+    case FileHandler.Init(chunks) => {
+      totalChunks = chunks
+      context become handling
+    }
+  }
+
   def receive = idle
+}
+
+/**
+ * Кэширование загружаемого файла в памяти.
+ */
+class BufferingFileHandler(parent: ActorRef) extends FileHandler(parent: ActorRef) {
+
+  var fileBuilder = ByteString.empty
+
+  override def needParsing: Boolean = true
+
+  def handlingUpload(fileChunk: FileChunk) = {
+    import fileChunk._
+    // выполнять парсинг файла
+    fileBuilder :+ file.entity.data.toByteString
+    Future.successful(FileChunkUploaded)
+  }
+}
+
+/**
+ * Передача частей файла в персистентное хранилище.
+ */
+class RedirectFileHandler(parent: ActorRef) extends FileHandler(parent: ActorRef) {
+
+  override def needParsing: Boolean = false
+
+  def handlingUpload(fileChunk: FileChunk) = {
+    // выполнять парсинг файла
+    Future {
+      println(fileChunk.file.entity.asString)
+    }.map(_ => FileChunkUploaded)
+  }
+
 }
