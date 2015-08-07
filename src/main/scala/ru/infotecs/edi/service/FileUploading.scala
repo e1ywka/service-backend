@@ -4,6 +4,7 @@ import akka.actor._
 import akka.pattern.{ask, pipe}
 import akka.util.{ByteString, Timeout}
 import ru.infotecs.edi.service.FileHandler.FlushTo
+import ru.infotecs.edi.service.FileServerClient.Finish
 import ru.infotecs.edi.service.FileUploading.{FileChunk, FileChunkUploaded, UploadFinished}
 import spray.http.BodyPart
 
@@ -151,13 +152,22 @@ class BufferingFileHandler(parent: ActorRef) extends FileHandler(parent: ActorRe
  */
 class RedirectFileHandler(parent: ActorRef) extends FileHandler(parent: ActorRef) {
 
+  val fileServerConnector = context.actorOf(Props[FileServerClient])
+
   override def needParsing: Boolean = false
 
   def handlingUpload(fileChunk: FileChunk) = {
-    // выполнять парсинг файла
     Future {
-      println(fileChunk.file.entity.asString)
+      fileServerConnector ! fileChunk.file.entity.data.toByteString
+      if (fileChunk.chunkOrder._1 == fileChunk.chunkOrder._2 - 1) {
+        context unwatch fileServerConnector
+        fileServerConnector ! Finish
+      }
     }.map(_ => FileChunkUploaded)
   }
 
+  @throws[Exception](classOf[Exception])
+  override def preStart(): Unit = {
+    context watch fileServerConnector
+  }
 }
