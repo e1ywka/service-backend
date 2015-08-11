@@ -152,7 +152,7 @@ class BufferingFileHandler(parent: ActorRef) extends FileHandler(parent: ActorRe
  */
 class RedirectFileHandler(parent: ActorRef) extends FileHandler(parent: ActorRef) {
 
-  val fileServerConnector = context.actorOf(Props[FileServerClient])
+  val fileServerConnector = context.actorOf(Props.create(classOf[DiskSave], "test"))
 
   override def needParsing: Boolean = false
 

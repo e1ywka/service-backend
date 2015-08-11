@@ -1,5 +1,8 @@
 package ru.infotecs.edi.service
 
+import java.io.{BufferedOutputStream, IOException, OutputStream, File}
+import java.nio.file.{StandardOpenOption, OpenOption, Files}
+
 import akka.actor._
 import akka.io.IO
 import akka.io.Tcp.Connected
@@ -111,5 +114,36 @@ class FileServerClient extends Actor {
   @throws[Exception](classOf[Exception])
   override def preStart(): Unit = {
     IO(Http) ! Http.Connect(host = "127.0.0.1", port = 9080)
+  }
+}
+
+class DiskSave(fileName: String) extends Actor {
+  import context._
+  var tempFile: File = _
+
+  def receive: Receive = {
+    case bs: ByteString => {
+      var fileOS: Option[OutputStream] = None
+
+      try {
+        val os = new BufferedOutputStream(Files.newOutputStream(tempFile.toPath, StandardOpenOption.WRITE, StandardOpenOption.APPEND))
+        fileOS = Some(os)
+        val arr = bs.toArray
+        os.write(arr)
+      } catch {
+        case e: IOException => stop(self)
+      } finally {
+        fileOS foreach(os => os.close())
+      }
+    }
+
+    case Finish => {
+      stop(self)
+    }
+  }
+
+  @throws[Exception](classOf[Exception])
+  override def preStart(): Unit = {
+    tempFile = File.createTempFile(fileName, ".upl")
   }
 }
