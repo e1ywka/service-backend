@@ -22,6 +22,14 @@ object Parser {
 
   case class InvalidXml(message: String) extends ParsingResult
 
+  def validate(b: ByteString) = {
+    val xmlDocument = XMLDocumentReader.read(b.iterator.asInputStream)
+    if (!xmlDocument.isInstanceOf[ClientDocument]) {
+      throw new Exception("Not a client document")
+    }
+    xmlDocument.validate()
+    xmlDocument
+  }
 }
 
 /**
@@ -35,11 +43,7 @@ class Parser extends Actor {
 
   def receive: Receive = {
     case f: ByteString => Future {
-      val xmlDocument = XMLDocumentReader.read(f.iterator.asInputStream)
-      if (!xmlDocument.isInstanceOf[ClientDocument]) {
-        throw new Exception("Not a client document")
-      }
-      xmlDocument
+      Parser.validate(f)
     } andThen {
       case Success(doc: ClientDocument) => doc.write(Console.out)
       case Failure(e) => println(e.getMessage)

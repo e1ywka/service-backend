@@ -3,76 +3,82 @@
  */
 package ru.infotecs.edi.service
 
-import akka.actor.{Actor, Props}
+import akka.actor.ActorRef
 import akka.pattern.ask
 import akka.util.Timeout
-import ru.infotecs.edi.service.FileUploading.{Meta, FileChunkUploaded}
-import spray.can.Http
-import scala.concurrent.duration._
-import spray.http.HttpMethods._
+import ru.infotecs.edi.service.FileUploading._
 import spray.http._
-import spray.httpx.unmarshalling.{FormDataUnmarshallers, PimpedHttpEntity}
+import spray.httpx.unmarshalling.Unmarshaller
+import spray.routing.{ExceptionHandler, HttpServiceActor}
 
-import scala.util.{Failure, Success, Try}
+import scala.concurrent.duration._
+import scala.util.Try
 
-case object ServiceStatus
+class UploadService(fileUploading: ActorRef) extends HttpServiceActor {
 
-class RequestHandler extends Actor {
+  import context.dispatcher
 
-  import context._
+  implicit val timeout = Timeout(3 seconds)
 
-  val fileUploadingHandler = actorOf(Props[FileUploading])
-  implicit val timeout: Timeout = 10 seconds
+  /**
+   * Unmarshaller maps multipart request as FileChunk.
+   */
+  implicit val fileUploadUnmarshaller: Unmarshaller[FileChunk] =
+    Unmarshaller.delegate[MultipartFormData, FileChunk](ContentTypeRange(MediaTypes.`multipart/form-data`)) { data =>
+      val fileUpload = for {
+        chunksBodyPart <- data.get("chunks")
+        chunks <- Try {
+          chunksBodyPart.entity.asString.toInt
+        }.toOption
+        chunkBodyPart <- data.get("chunk")
+        chunk <- Try {
+          chunkBodyPart.entity.asString.toInt
+        }.toOption
+        file <- data.get("file")
+        fileNameBodyPart <- data.get("name")
+        fileSizeBodyPart <- data.get("size")
+        fileSize <- Try {
+          fileSizeBodyPart.entity.asString.toLong
+        }.toOption
+        fileHashBodyPart <- data.get("sha256hash")
+        meta <- Some(Meta(fileNameBodyPart.entity.asString,
+          fileSize,
+          fileNameBodyPart.entity.asString))
+      } yield FileUploading.FileChunk((chunk, chunks), file, meta)
 
-  def receive: Receive = {
-    case _: Http.Connected => sender ! Http.Register(system.actorOf(Props[RequestHandler]))
-
-    case HttpRequest(GET, Uri.Path("/status"), _, _, _) => {
-      sender ! HttpResponse(status = 200, entity = "Server is working")
+      fileUpload match {
+        case Some(f) => f
+      }
     }
 
-    case HttpRequest(GET, Uri.Path("/upload"), _, _, _) => {
-      sender ! HttpResponse(status = 200, entity = HttpEntity(ContentType(MediaTypes.`text/html`, HttpCharsets.`UTF-8`), formUpload))
-    }
-
-    case HttpRequest(POST, Uri.Path("/upload"), headers, entity, _) => {
-      import FormDataUnmarshallers._
-
-      entity.as[MultipartFormData] match {
-        case Left(e) => sender ! HttpResponse(status = 500, "Unsupported media type")
-        case Right(data) => {
-          val fileChunk = for {
-            chunksBodyPart <- data.get("chunks")
-            chunks <- Try {
-              chunksBodyPart.entity.asString.toInt
-            }.toOption
-            chunkBodyPart <- data.get("chunk")
-            chunk <- Try {
-              chunkBodyPart.entity.asString.toInt
-            }.toOption
-            file <- data.get("file")
-            fileNameBodyPart <- data.get("name")
-            fileSizeBodyPart <- data.get("size")
-            fileSize <- Try { fileSizeBodyPart.entity.asString.toLong }.toOption
-            fileHashBodyPart <- data.get("sha256hash")
-            meta <- Some(Meta(fileNameBodyPart.entity.asString,
-                         fileSize,
-                         fileNameBodyPart.entity.asString))
-          } yield FileUploading.FileChunk((chunk, chunks), file, meta)
-
-          fileChunk match {
-            case Some(f) => {
-              sender ! HttpResponse(status = 204)
-              fileUploadingHandler ! f
+  def receive = runRoute {
+    path("upload") {
+      get {
+        respondWithMediaType(MediaTypes.`text/html`) {
+          complete(formUpload)
+        }
+      } ~
+        post {
+          entity(as[FileChunk]) { f =>
+            detach() {
+              complete {
+                fileUploading ? f map {
+                  case FileChunkUploaded => HttpResponse(204)
+                  case FileSavingFinished(fn) => HttpResponse(200, s"File $fn is saved")
+                  case BufferingFinished(fn, b) => {
+                    Parser.validate(b)
+                    HttpResponse(200, s"File $fn is valid")
+                  }
+                }
+              }
             }
-            case None => sender ! HttpResponse(status = 500, "Unsupported media type")
           }
         }
-      }
-
-      //println(new BufferedReader(new InputStreamReader(new ByteArrayInputStream(data.toByteArray), charset.getOrElse(HttpCharsets.`UTF-8`).nioCharset)))
-      //sender ! HttpResponse(status = 200, "Ok")
     }
+  }
+
+  implicit val exceptionHanlder = ExceptionHandler {
+    case _ => complete(HttpResponse(500))
   }
 
   lazy val formUpload =
@@ -120,6 +126,13 @@ class RequestHandler extends Actor {
       |                uploader.start();
       |                return false;
       |            };
+      |        },
+      |
+      |        BeforeUpload: function(up, file) {
+      |            up.settings.multipart_params = {
+      |                size: file.size,
+      |                sha256hash: "hash"
+      |            }
       |        },
       |
       |        FilesAdded: function(up, files) {

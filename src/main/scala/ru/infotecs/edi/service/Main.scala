@@ -11,7 +11,8 @@ import spray.can.Http
 object Main extends App {
 
   implicit val system = ActorSystem()
-  val handler = system.actorOf(Props[RequestHandler])
+  val fileUploading = system.actorOf(Props[FileUploading])
+  val handler = system.actorOf(Props.create(classOf[UploadService], fileUploading))
 
   IO(Http) ! Http.Bind(handler, interface = "localhost", port = 10000)
 }

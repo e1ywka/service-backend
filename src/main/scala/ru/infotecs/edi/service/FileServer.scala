@@ -42,7 +42,7 @@ class FileServer extends Actor with Stash {
   val fileServerClient = actorOf(Props[FileServerClient])
 
   def available: Receive = {
-    case ServiceStatus => 'Available
+    //case ServiceStatus => 'Available
 
     case m@FileServer.AuthorizedFilePart(token, filePart) => {
       val s = sender
@@ -57,7 +57,7 @@ class FileServer extends Actor with Stash {
   }
 
   def unavailable: Receive = {
-    case ServiceStatus => 'Unavailable
+    //case ServiceStatus => 'Unavailable
     case FileServer.FilePart => stash()
   }
 
