@@ -6,7 +6,7 @@ package ru.infotecs.edi.service
 import akka.actor.{Actor, Props}
 import akka.pattern.ask
 import akka.util.Timeout
-import ru.infotecs.edi.service.FileUploading.FileChunkUploaded
+import ru.infotecs.edi.service.FileUploading.{Meta, FileChunkUploaded}
 import spray.can.Http
 import scala.concurrent.duration._
 import spray.http.HttpMethods._
@@ -52,15 +52,18 @@ class RequestHandler extends Actor {
             }.toOption
             file <- data.get("file")
             fileNameBodyPart <- data.get("name")
-          } yield FileUploading.FileChunk((chunk, chunks), file, fileNameBodyPart.entity.asString(HttpCharsets.`UTF-8`))
+            fileSizeBodyPart <- data.get("size")
+            fileSize <- Try { fileSizeBodyPart.entity.asString.toLong }.toOption
+            fileHashBodyPart <- data.get("sha256hash")
+            meta <- Some(Meta(fileNameBodyPart.entity.asString,
+                         fileSize,
+                         fileNameBodyPart.entity.asString))
+          } yield FileUploading.FileChunk((chunk, chunks), file, meta)
 
           fileChunk match {
             case Some(f) => {
-              val client = sender
-              fileUploadingHandler ? f onComplete {
-                case Success(FileChunkUploaded) => client ! HttpResponse(status = 204)
-                case Failure(e) => client ! HttpResponse(status = 500, "Unable to save file. Excpetion message: " + e.getMessage)
-              }
+              sender ! HttpResponse(status = 204)
+              fileUploadingHandler ! f
             }
             case None => sender ! HttpResponse(status = 500, "Unsupported media type")
           }

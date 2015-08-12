@@ -9,7 +9,7 @@ import akka.pattern.ask
 import akka.util.{ByteString, Timeout}
 import org.scalatest._
 import ru.infotecs.edi.service.FileHandler.{FlushTo, Init}
-import ru.infotecs.edi.service.FileUploading.{UploadFinished, FileChunkUploaded, FileChunk}
+import ru.infotecs.edi.service.FileUploading.{Meta, UploadFinished, FileChunkUploaded, FileChunk}
 import spray.http.BodyPart
 
 import scala.concurrent.duration._
@@ -32,7 +32,7 @@ class FileHandlerSpec(_system: ActorSystem) extends TestKit(_system)
       val totalChunks = 2
       val actorRef = system.actorOf(Props.create(classOf[BufferingFileHandler], self))
       actorRef ! Init(totalChunks)
-      actorRef ! FileChunk((0, totalChunks), BodyPart("<entity></entity>", "file"), "fileName")
+      actorRef ! FileChunk((0, totalChunks), BodyPart("<entity></entity>", "file"), Meta("fileName", 17, "123"))
       expectMsg(FileChunkUploaded)
     }
 
@@ -40,7 +40,7 @@ class FileHandlerSpec(_system: ActorSystem) extends TestKit(_system)
       val totalChunks = 1
       val actorRef = system.actorOf(Props.create(classOf[BufferingFileHandler], self))
       actorRef ! Init(totalChunks)
-      actorRef ! FileChunk((0, totalChunks), BodyPart("<entity></entity>", "file"), "fileName")
+      actorRef ! FileChunk((0, totalChunks), BodyPart("<entity></entity>", "file"),  Meta("fileName", 17, "123"))
       expectMsgAllOf(FileChunkUploaded, UploadFinished("fileName", true))
     }
 
@@ -48,8 +48,8 @@ class FileHandlerSpec(_system: ActorSystem) extends TestKit(_system)
       val totalChunks = 2
       val actorRef = system.actorOf(Props.create(classOf[BufferingFileHandler], self))
       actorRef ! Init(totalChunks)
-      actorRef ! FileChunk((1, totalChunks), BodyPart("</entity>", "file"), "fileName")
-      actorRef ! FileChunk((0, totalChunks), BodyPart("<entity>", "file"), "fileName")
+      actorRef ! FileChunk((1, totalChunks), BodyPart("</entity>", "file"),  Meta("fileName", 17, "123"))
+      actorRef ! FileChunk((0, totalChunks), BodyPart("<entity>", "file"),  Meta("fileName", 17, "123"))
       expectMsgAllOf(FileChunkUploaded, FileChunkUploaded, UploadFinished("fileName", true))
 
       val probe = TestProbe()

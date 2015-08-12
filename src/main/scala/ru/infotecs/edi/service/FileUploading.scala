@@ -5,7 +5,7 @@ import akka.pattern.{ask, pipe}
 import akka.util.{ByteString, Timeout}
 import ru.infotecs.edi.service.FileHandler.FlushTo
 import ru.infotecs.edi.service.FileServerClient.Finish
-import ru.infotecs.edi.service.FileUploading.{FileChunk, FileChunkUploaded, UploadFinished}
+import ru.infotecs.edi.service.FileUploading.{Meta, FileChunk, FileChunkUploaded, UploadFinished}
 import spray.http.BodyPart
 
 import scala.concurrent.Future
@@ -13,7 +13,11 @@ import scala.concurrent.duration._
 
 object FileUploading {
 
-  case class FileChunk(chunkOrder: (Int, Int), file: BodyPart, fileName: String)
+  case class Meta(fileName: String, size: Long, sha256Hash: String)
+
+  type ChunkOrder = (Int, Int)
+
+  case class FileChunk(chunkOrder: ChunkOrder, file: BodyPart, meta: Meta)
 
   case object FileChunkUploaded
 
@@ -35,7 +39,7 @@ class FileUploading extends Actor {
   implicit val timeout: Timeout = 3 seconds
 
   def receive: Receive = {
-    case f@FileChunk((_, chunks), _, fileName) => {
+    case f@FileChunk((_, chunks), _, Meta(fileName, _, _)) => {
       val handler = fileHandlers.getOrElseUpdate(fileName, createFileHandler(fileName, chunks))
       val recipient = sender
       handler ? f pipeTo recipient
@@ -86,7 +90,7 @@ abstract sealed class FileHandler(parent: ActorRef) extends Actor with Stash {
   var totalChunks = 0
   implicit val ec = context.system.dispatcher
 
-  def handlingUpload(fileChunk: FileChunk): Future[FileChunkUploaded.type]
+  def handlingUpload(fileChunk: FileChunk): Unit
 
   def needParsing: Boolean
 
@@ -98,13 +102,13 @@ abstract sealed class FileHandler(parent: ActorRef) extends Actor with Stash {
   }
 
   val handling: Receive = {
-    case f@FileChunk((chunk, chunks), filePart, fileName) => {
+    case f@FileChunk((chunk, chunks), filePart, Meta(fileName, _, _)) => {
       unstashAll()
       if (chunk == nextChunk) {
         nextChunk += 1
         // выполнять парсинг файла
         val recipient = sender
-        handlingUpload(f).pipeTo(recipient)
+        handlingUpload(f)
         if (nextChunk == totalChunks) {
           context become uploaded
           parent ! UploadFinished(fileName, needParsing)
@@ -139,7 +143,6 @@ class BufferingFileHandler(parent: ActorRef) extends FileHandler(parent: ActorRe
     import fileChunk._
     // выполнять парсинг файла
     fileBuilder = fileBuilder ++ file.entity.data.toByteString
-    Future.successful(FileChunkUploaded)
   }
 
   override def uploaded: Receive = super.uploaded orElse {
@@ -157,13 +160,11 @@ class RedirectFileHandler(parent: ActorRef) extends FileHandler(parent: ActorRef
   override def needParsing: Boolean = false
 
   def handlingUpload(fileChunk: FileChunk) = {
-    Future {
-      fileServerConnector ! fileChunk.file.entity.data.toByteString
-      if (fileChunk.chunkOrder._1 == fileChunk.chunkOrder._2 - 1) {
-        context unwatch fileServerConnector
-        fileServerConnector ! Finish
-      }
-    }.map(_ => FileChunkUploaded)
+    fileServerConnector ! fileChunk.file.entity.data.toByteString
+    if (fileChunk.chunkOrder._1 == fileChunk.chunkOrder._2 - 1) {
+      context unwatch fileServerConnector
+      fileServerConnector ! Finish
+    }
   }
 
   @throws[Exception](classOf[Exception])
