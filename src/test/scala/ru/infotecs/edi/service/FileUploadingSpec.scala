@@ -4,14 +4,13 @@
 package ru.infotecs.edi.service
 
 import akka.actor.ActorSystem
-import akka.pattern.ask
 import akka.testkit.TestActorRef
 import akka.util.Timeout
 import org.scalatest.FlatSpec
-import ru.infotecs.edi.service.FileUploading.{FileChunk, FileChunkUploaded}
+import ru.infotecs.edi.service.FileUploading
+import ru.infotecs.edi.service.FileUploading.{FileChunk, Meta}
 import spray.http.BodyPart
 
-import scala.util.{Failure, Success}
 import scala.concurrent.duration._
 
 class FileUploadingSpec extends FlatSpec {
@@ -22,7 +21,7 @@ class FileUploadingSpec extends FlatSpec {
   it should "create new FileHandler for new file" in {
     val actorRef = TestActorRef[FileUploading]
     val actor = actorRef.underlyingActor
-    actorRef ! FileChunk((0, 1), BodyPart("123", "file"), "fileName")
+    actorRef ! FileChunk((0, 1), BodyPart("123", "file"),  Meta("fileName", 17, "123"))
 
     assert(actor.fileHandlers.contains("fileName"))
   }

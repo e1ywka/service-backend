@@ -4,7 +4,8 @@ import akka.actor._
 import akka.pattern.{ask, pipe}
 import akka.util.{ByteString, Timeout}
 import ru.infotecs.edi.service.FileHandler.FlushTo
-import ru.infotecs.edi.service.FileUploading.{FileChunk, FileChunkUploaded, UploadFinished}
+import ru.infotecs.edi.service.FileServerClient.Finish
+import ru.infotecs.edi.service.FileUploading._
 import spray.http.BodyPart
 
 import scala.concurrent.Future
@@ -12,11 +13,19 @@ import scala.concurrent.duration._
 
 object FileUploading {
 
-  case class FileChunk(chunkOrder: (Int, Int), file: BodyPart, fileName: String)
+  case class Meta(fileName: String, size: Long, sha256Hash: String)
+
+  type ChunkOrder = (Int, Int)
+
+  case class FileChunk(chunkOrder: ChunkOrder, file: BodyPart, meta: Meta)
 
   case object FileChunkUploaded
 
-  case class UploadFinished(fileName: String, needParsing: Boolean)
+  abstract class UploadFinished(fileName: String, needParsing: Boolean)
+
+  case class BufferingFinished(fileName: String, b: ByteString) extends UploadFinished(fileName, true)
+
+  case class FileSavingFinished(fileName: String) extends UploadFinished(fileName, false)
 }
 
 /**
@@ -34,20 +43,19 @@ class FileUploading extends Actor {
   implicit val timeout: Timeout = 3 seconds
 
   def receive: Receive = {
-    case f@FileChunk((_, chunks), _, fileName) => {
+    case f@FileChunk((_, chunks), _, Meta(fileName, _, _)) => {
       val handler = fileHandlers.getOrElseUpdate(fileName, createFileHandler(fileName, chunks))
-      val recipient = sender
-      handler ? f pipeTo recipient
+      handler forward f
     }
 
-    case UploadFinished(fileName, true) => sender ! FlushTo(actorOf(Props[Parser]))
-    case UploadFinished(fileName, false) =>
+    /*case UploadFinished(fileName, true) => sender ! FlushTo(actorOf(Props[Parser]))
+    case UploadFinished(fileName, false) =>*/
 
     case Terminated(h) => {
       fileHandlers.retain((_, handler) => !handler.equals(h))
-      if (fileHandlers.isEmpty) {
+      /*if (fileHandlers.isEmpty) {
         context.stop(self)
-      }
+      }*/
     }
   }
 
@@ -85,9 +93,9 @@ abstract sealed class FileHandler(parent: ActorRef) extends Actor with Stash {
   var totalChunks = 0
   implicit val ec = context.system.dispatcher
 
-  def handlingUpload(fileChunk: FileChunk): Future[FileChunkUploaded.type]
+  def handlingUpload(fileChunk: FileChunk): Unit
 
-  def needParsing: Boolean
+  def uploadFinishedMessage(fileName: String): UploadFinished
 
   def uploaded: Receive = {
     case _: FileChunk => {
@@ -97,16 +105,18 @@ abstract sealed class FileHandler(parent: ActorRef) extends Actor with Stash {
   }
 
   val handling: Receive = {
-    case f@FileChunk((chunk, chunks), filePart, fileName) => {
+    case f@FileChunk((chunk, chunks), filePart, Meta(fileName, _, _)) => {
       unstashAll()
       if (chunk == nextChunk) {
         nextChunk += 1
         // выполнять парсинг файла
         val recipient = sender
-        handlingUpload(f).pipeTo(recipient)
+        handlingUpload(f)
         if (nextChunk == totalChunks) {
           context become uploaded
-          parent ! UploadFinished(fileName, needParsing)
+          sender ! uploadFinishedMessage(fileName)
+        } else {
+          sender ! FileChunkUploaded
         }
       } else {
         stash()
@@ -132,13 +142,14 @@ class BufferingFileHandler(parent: ActorRef) extends FileHandler(parent: ActorRe
 
   var fileBuilder = ByteString.empty
 
-  override def needParsing: Boolean = true
+  override def uploadFinishedMessage(fileName: String): UploadFinished = {
+    BufferingFinished(fileName, fileBuilder)
+  }
 
   def handlingUpload(fileChunk: FileChunk) = {
     import fileChunk._
     // выполнять парсинг файла
     fileBuilder = fileBuilder ++ file.entity.data.toByteString
-    Future.successful(FileChunkUploaded)
   }
 
   override def uploaded: Receive = super.uploaded orElse {
@@ -151,13 +162,22 @@ class BufferingFileHandler(parent: ActorRef) extends FileHandler(parent: ActorRe
  */
 class RedirectFileHandler(parent: ActorRef) extends FileHandler(parent: ActorRef) {
 
-  override def needParsing: Boolean = false
+  val fileServerConnector = context.actorOf(Props.create(classOf[DiskSave], "test"))
 
-  def handlingUpload(fileChunk: FileChunk) = {
-    // выполнять парсинг файла
-    Future {
-      println(fileChunk.file.entity.asString)
-    }.map(_ => FileChunkUploaded)
+  override def uploadFinishedMessage(fileName: String): UploadFinished = {
+    FileSavingFinished(fileName)
   }
 
+  def handlingUpload(fileChunk: FileChunk) = {
+    fileServerConnector ! fileChunk.file.entity.data.toByteString
+    if (fileChunk.chunkOrder._1 == fileChunk.chunkOrder._2 - 1) {
+      context unwatch fileServerConnector
+      fileServerConnector ! Finish
+    }
+  }
+
+  @throws[Exception](classOf[Exception])
+  override def preStart(): Unit = {
+    context watch fileServerConnector
+  }
 }

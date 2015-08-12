@@ -1,17 +1,31 @@
 package ru.infotecs.edi.service
 
-import akka.actor.{Stash, Props, Actor}
+import java.io.{BufferedOutputStream, IOException, OutputStream, File}
+import java.nio.file.{StandardOpenOption, OpenOption, Files}
+
+import akka.actor._
+import akka.io.IO
+import akka.io.Tcp.Connected
 import akka.pattern._
-import akka.util.Timeout
+import akka.util.{ByteString, Timeout}
+import ru.infotecs.edi.service.FileServerClient.Finish
+import spray.can.Http
+import spray.http._
+import spray.http.HttpMethods._
 
 import scala.concurrent.duration._
-import scala.util.{Success, Failure}
+import scala.util.{Failure, Success}
 
 object FileServer {
+
   case object UploadSucceed
+
   case object UploadFailed
+
   case class FilePart(fileId: String, chunk: Array[Byte])
+
   case class AuthorizedFilePart(token: String, filePart: FilePart)
+
 }
 
 /**
@@ -22,12 +36,13 @@ object FileServer {
 class FileServer extends Actor with Stash {
 
   import context._
+
   implicit val timeout = Timeout(10 seconds)
 
   val fileServerClient = actorOf(Props[FileServerClient])
 
   def available: Receive = {
-    case ServiceStatus => "Available"
+    //case ServiceStatus => 'Available
 
     case m@FileServer.AuthorizedFilePart(token, filePart) => {
       val s = sender
@@ -42,7 +57,7 @@ class FileServer extends Actor with Stash {
   }
 
   def unavailable: Receive = {
-    case ServiceStatus => "Unavailable"
+    //case ServiceStatus => 'Unavailable
     case FileServer.FilePart => stash()
   }
 
@@ -55,10 +70,80 @@ class FileServer extends Actor with Stash {
  */
 // TODO prestart: establish connection to File Store and notify parent
 // TODO implement client as broker to distribute sending in several tcp connections and/or several nodes
+object FileServerClient {
+  case object Finish
+}
+
 class FileServerClient extends Actor {
-  implicit val ec = context.system.dispatcher
+  import spray.http.HttpHeaders._
+  import spray.http.ContentTypes.`application/octet-stream`
+  import context._
 
-  val circuitBreaker = new CircuitBreaker(context.system.scheduler, 3, 10 seconds, 1 minute)
+  val circuitBreaker = new CircuitBreaker(system.scheduler, 3, 10 seconds, 1 minute)
 
-  def receive: Receive = ???
+  def connected(connector: ActorRef): Receive = {
+    case chunk: ByteString => connector ! MessageChunk(HttpData(chunk))
+    case Finish => {
+      connector ! ChunkedMessageEnd
+      connector ! Http.Close
+      unwatch(connector)
+      become(stopping)
+    }
+    case Terminated(a) if a.equals(connector) => stop(self)
+  }
+
+  def stopping: Receive = {
+    case Http.Closed => stop(self)
+  }
+
+  def receive: Receive = {
+    case Http.Connected => {
+      watch(sender)
+      sender ! ChunkedRequestStart(HttpRequest(method = POST,
+        uri = Uri("/edi/account/debug/upload"),
+        headers = `Content-Type`(`application/octet-stream`) ::
+          Authorization(GenericHttpCredentials("Bearer", "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJwaWQiOiIwZWNlMzBjMy00NzJhLTRiMTUtOGE4ZC0zNTUwMjEzMTlmODgiLCJjaWQiOiJkYzc1ZGIwZS03YWEzLTRiZTktOGU2Mi00NmNhMTU4MTVhOTciLCJpYXQiOjE0Mzg5NTA3MjMsImV4cCI6MTQzODk1NjEyMywiYXVkIjpbIkIyQiJdLCJpc3MiOiJDQSJ9.UO-nk1VrMS3F0DiElQLxZ56cHJ5pf6imKatEBoibW1E")) ::
+          `Content-Disposition`("attachment", Map("filename" -> "23efbf9f-f566-4e16-b4c9-ff1427a8deb7")) ::
+          RawHeader("Session-ID", "23efbf9f-f566-4e16-b4c9-ff1427a8deb7") ::
+          Nil))
+      become(connected(sender))
+    }
+    case Http.CommandFailed => stop(self)
+  }
+
+  @throws[Exception](classOf[Exception])
+  override def preStart(): Unit = {
+    IO(Http) ! Http.Connect(host = "127.0.0.1", port = 9080)
+  }
+}
+
+class DiskSave(fileName: String) extends Actor {
+  import context._
+  var tempFile: File = _
+
+  def receive: Receive = {
+    case bs: ByteString => {
+      var fileOS: Option[OutputStream] = None
+
+      try {
+        val os = new BufferedOutputStream(Files.newOutputStream(tempFile.toPath, StandardOpenOption.WRITE, StandardOpenOption.APPEND))
+        fileOS = Some(os)
+        val arr = bs.toArray
+        os.write(arr)
+      } catch {
+        case e: IOException => stop(self)
+      } finally {
+        fileOS foreach(os => os.close())
+      }
+    }
+
+    case Finish => {
+      stop(self)
+    }
+  }
+
+  @throws[Exception](classOf[Exception])
+  override def preStart(): Unit = {
+    tempFile = File.createTempFile(fileName, ".upl")
+  }
 }
