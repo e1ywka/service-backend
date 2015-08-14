@@ -19,3 +19,11 @@ libraryDependencies += "com.typesafe.akka" %% "akka-testkit" % "2.3.11"
 libraryDependencies += "org.scalatest" %% "scalatest" % "2.2.4" % "test"
 
 libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.1.2"
+
+libraryDependencies += "org.postgresql" % "postgresql" % "9.4-1201-jdbc41"
+
+libraryDependencies += "com.mchange" % "c3p0" % "0.9.5"
+
+libraryDependencies += "com.h2database" % "h2" % "1.4.188" % "test"
+
+libraryDependencies += "com.typesafe.slick" %% "slick" % "3.0.1"

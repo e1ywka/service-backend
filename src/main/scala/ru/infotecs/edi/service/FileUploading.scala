@@ -1,14 +1,17 @@
 package ru.infotecs.edi.service
 
+import java.util.UUID
+
 import akka.actor._
 import akka.pattern.{ask, pipe}
 import akka.util.{ByteString, Timeout}
+import ru.infotecs.edi.db.{FileInfo, Dal}
 import ru.infotecs.edi.service.FileHandler.FlushTo
 import ru.infotecs.edi.service.FileServerClient.Finish
 import ru.infotecs.edi.service.FileUploading._
 import spray.http.BodyPart
 
-import scala.concurrent.Future
+import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
 
 object FileUploading {
@@ -31,12 +34,13 @@ object FileUploading {
 /**
  * FileUploading aggregates uploaded file chunks and performs file parsing.
  */
-class FileUploading extends Actor {
+class FileUploading(dal: Dal) extends Actor {
 
   import context._
 
-  val bufferingFileHandler = Props.create(classOf[BufferingFileHandler], self)
-  val redirectFileHandler = Props.create(classOf[RedirectFileHandler], self)
+  val fileMetaProps = Props.create(classOf[FileMetaInfo], dal)
+  def bufferingFileHandler(fileId: UUID) = Props.create(classOf[BufferingFileHandler], self, fileId)
+  def redirectFileHandler(fileId: UUID) = Props.create(classOf[RedirectFileHandler], self, fileId)
 
   val fileHandlers = new scala.collection.mutable.HashMap[String, ActorRef]
 
@@ -44,7 +48,7 @@ class FileUploading extends Actor {
 
   def receive: Receive = {
     case f@FileChunk((_, chunks), _, Meta(fileName, _, _)) => {
-      val handler = fileHandlers.getOrElseUpdate(fileName, createFileHandler(fileName, chunks))
+      val handler = fileHandlers.getOrElseUpdate(fileName, createFileHandler(f))
       handler forward f
     }
 
@@ -59,16 +63,19 @@ class FileUploading extends Actor {
     }
   }
 
-  def createFileHandler(fileName: String, chunks: Int): ActorRef = {
+  def createFileHandler(fileChunk: FileChunk): ActorRef = {
+
+    val fileId: UUID = Await.result((actorOf(fileMetaProps) ? fileChunk).mapTo[FileInfo].map(_.id), Duration.Inf)
+
     val actor: ActorRef = {
-      if (fileName.toLowerCase.endsWith("xml")) {
-        actorOf(bufferingFileHandler)
+      if (fileChunk.meta.fileName.toLowerCase.endsWith("xml")) {
+        actorOf(bufferingFileHandler(fileId))
       } else {
-        actorOf(redirectFileHandler)
+        actorOf(redirectFileHandler(fileId))
       }
     }
     watch(actor)
-    actor ! FileHandler.Init(chunks)
+    actor ! FileHandler.Init(fileChunk.chunkOrder._2)
     actor
   }
 }
@@ -87,8 +94,10 @@ object FileHandler {
 /**
  * Базовый класс для обработки загружаемого файла.
  * Выполняет контроль очереди частей файла.
+ *
+ * param parent
  */
-abstract sealed class FileHandler(parent: ActorRef) extends Actor with Stash {
+abstract sealed class FileHandler(parent: ActorRef, fileId: UUID) extends Actor with Stash {
   var nextChunk = 0
   var totalChunks = 0
   implicit val ec = context.system.dispatcher
@@ -138,7 +147,7 @@ abstract sealed class FileHandler(parent: ActorRef) extends Actor with Stash {
 /**
  * Кэширование загружаемого файла в памяти.
  */
-class BufferingFileHandler(parent: ActorRef) extends FileHandler(parent: ActorRef) {
+class BufferingFileHandler(parent: ActorRef, fileId: UUID) extends FileHandler(parent, fileId) {
 
   var fileBuilder = ByteString.empty
 
@@ -160,7 +169,7 @@ class BufferingFileHandler(parent: ActorRef) extends FileHandler(parent: ActorRe
 /**
  * Передача частей файла в персистентное хранилище.
  */
-class RedirectFileHandler(parent: ActorRef) extends FileHandler(parent: ActorRef) {
+class RedirectFileHandler(parent: ActorRef, fileId: UUID) extends FileHandler(parent, fileId) {
 
   val fileServerConnector = context.actorOf(Props.create(classOf[DiskSave], "test"))
 
