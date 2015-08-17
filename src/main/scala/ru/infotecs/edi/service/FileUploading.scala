@@ -24,15 +24,17 @@ object FileUploading {
 
   case object FileChunkUploaded
 
-  abstract class UploadFinished(fileName: String, needParsing: Boolean)
+  abstract class UploadFinished(fileId: String, fileName: String, needParsing: Boolean)
 
-  case class BufferingFinished(fileName: String, b: ByteString) extends UploadFinished(fileName, true)
+  case class BufferingFinished(fileId: String, fileName: String, b: ByteString) extends UploadFinished(fileId, fileName, true)
 
-  case class FileSavingFinished(fileName: String) extends UploadFinished(fileName, false)
+  case class FileSavingFinished(fileId: String, fileName: String) extends UploadFinished(fileId, fileName, false)
 }
 
 /**
  * FileUploading aggregates uploaded file chunks and performs file parsing.
+ *
+ * @param dal database access.
  */
 class FileUploading(dal: Dal) extends Actor {
 
@@ -52,14 +54,8 @@ class FileUploading(dal: Dal) extends Actor {
       handler forward f
     }
 
-    /*case UploadFinished(fileName, true) => sender ! FlushTo(actorOf(Props[Parser]))
-    case UploadFinished(fileName, false) =>*/
-
     case Terminated(h) => {
       fileHandlers.retain((_, handler) => !handler.equals(h))
-      /*if (fileHandlers.isEmpty) {
-        context.stop(self)
-      }*/
     }
   }
 
@@ -152,7 +148,7 @@ class BufferingFileHandler(parent: ActorRef, fileId: UUID) extends FileHandler(p
   var fileBuilder = ByteString.empty
 
   override def uploadFinishedMessage(fileName: String): UploadFinished = {
-    BufferingFinished(fileName, fileBuilder)
+    BufferingFinished(fileId.toString, fileName, fileBuilder)
   }
 
   def handlingUpload(fileChunk: FileChunk) = {
@@ -174,7 +170,7 @@ class RedirectFileHandler(parent: ActorRef, fileId: UUID) extends FileHandler(pa
   val fileServerConnector = context.actorOf(Props.create(classOf[DiskSave], "test"))
 
   override def uploadFinishedMessage(fileName: String): UploadFinished = {
-    FileSavingFinished(fileName)
+    FileSavingFinished(fileId.toString, fileName)
   }
 
   def handlingUpload(fileChunk: FileChunk) = {

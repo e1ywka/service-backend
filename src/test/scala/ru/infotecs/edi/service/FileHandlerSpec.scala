@@ -7,7 +7,6 @@ import akka.actor.{ActorSystem, Props}
 import akka.testkit.{ImplicitSender, TestKit, TestProbe}
 import akka.util.{ByteString, Timeout}
 import org.scalatest._
-import ru.infotecs.edi.service.BufferingFileHandler
 import ru.infotecs.edi.service.FileHandler.{FlushTo, Init}
 import ru.infotecs.edi.service.FileUploading._
 import spray.http.BodyPart
@@ -15,7 +14,7 @@ import spray.http.BodyPart
 import scala.concurrent.duration._
 
 class FileHandlerSpec(_system: ActorSystem) extends TestKit(_system)
-    with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
+with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
 
   def this() = this(ActorSystem())
 
@@ -42,17 +41,18 @@ class FileHandlerSpec(_system: ActorSystem) extends TestKit(_system)
       val totalChunks = 1
       val actorRef = system.actorOf(Props.create(classOf[BufferingFileHandler], self))
       actorRef ! Init(totalChunks)
-      actorRef ! FileChunk((0, totalChunks), BodyPart(message, "file"),  Meta("fileName", 17, "123"))
-      expectMsg(BufferingFinished("fileName", messageStream))
+      actorRef ! FileChunk((0, totalChunks), BodyPart(message, "file"), Meta("fileName", 17, "123"))
+      expectMsgClass(classOf[BufferingFinished])
     }
 
     "respect ordering of chunks" in {
       val totalChunks = 2
       val actorRef = system.actorOf(Props.create(classOf[BufferingFileHandler], self))
       actorRef ! Init(totalChunks)
-      actorRef ! FileChunk((1, totalChunks), BodyPart("</entity>", "file"),  Meta("fileName", 9, "123"))
-      actorRef ! FileChunk((0, totalChunks), BodyPart("<entity>", "file"),  Meta("fileName", 8, "123"))
-      expectMsgAllOf(FileChunkUploaded, BufferingFinished("fileName", messageStream))
+      actorRef ! FileChunk((1, totalChunks), BodyPart("</entity>", "file"), Meta("fileName", 9, "123"))
+      actorRef ! FileChunk((0, totalChunks), BodyPart("<entity>", "file"), Meta("fileName", 8, "123"))
+      expectMsg(FileChunkUploaded)
+      expectMsgClass(classOf[BufferingFinished])
 
       val probe = TestProbe()
       actorRef ! FlushTo(probe.ref)

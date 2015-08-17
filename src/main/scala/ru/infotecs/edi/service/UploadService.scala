@@ -8,14 +8,16 @@ import akka.pattern.ask
 import akka.util.Timeout
 import ru.infotecs.edi.service.FileUploading._
 import spray.http._
-import spray.httpx.unmarshalling.Unmarshaller
+import spray.httpx.marshalling._
+import spray.httpx.unmarshalling._
+import spray.httpx.SprayJsonSupport._
 import spray.routing.{ExceptionHandler, HttpServiceActor}
 
 import scala.concurrent.duration._
 import scala.util.Try
 
 class UploadService(fileUploading: ActorRef) extends HttpServiceActor {
-
+  import ServiceJsonFormat._
   import context.dispatcher
 
   implicit val timeout = Timeout(3 seconds)
@@ -58,22 +60,22 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor {
           complete(formUpload)
         }
       } ~
-        post {
-          entity(as[FileChunk]) { f =>
-            detach() {
-              complete {
-                fileUploading ? f map {
-                  case FileChunkUploaded => HttpResponse(204)
-                  case FileSavingFinished(fn) => HttpResponse(200, s"File $fn is saved")
-                  case BufferingFinished(fn, b) => {
-                    Parser.validate(b)
-                    HttpResponse(200, s"File $fn is valid")
-                  }
+      post {
+        entity(as[FileChunk]) { f =>
+          detach() {
+            complete {
+              fileUploading ? f map {
+                case FileChunkUploaded => HttpResponse(204)
+                case FileSavingFinished(fileId, fn) => HttpResponse(200, marshalUnsafe(UnformalDocument(fileId, fn, 1)))
+                case BufferingFinished(fileId, fn, b) => {
+                  Parser.validate(b)
+                  HttpResponse(200, s"File $fn is valid")
                 }
               }
             }
           }
         }
+      }
     }
   }
 
