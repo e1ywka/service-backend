@@ -5,6 +5,8 @@ package ru.infotecs.edi.db
 
 import java.util.UUID
 
+import slick.lifted.ForeignKey
+
 /**
  * Meta information about files.
  * @param id unique file id.
@@ -14,6 +16,10 @@ import java.util.UUID
  * @param sha256 hash computed using SHA-256.
  */
 case class FileInfo(id: UUID, uploader: UUID, name: String, size: Long, sha256: Array[Byte])
+
+case class Company(id: UUID, inn: String, kpp: Option[String])
+
+case class Friendship(id: UUID, initiatorId: UUID, recipientId: UUID, status: String)
 
 /**
  * DB schema description.
@@ -34,4 +40,26 @@ trait DbModel { this: DriverComponent =>
     def * = (id, uploader, name, size, sha256) <> (FileInfo.tupled, FileInfo.unapply)
   }
   val fileInfos = TableQuery[FileInfos]
+
+  class Companies(tag: Tag) extends Table[Company](tag, "company") {
+    def id = column[UUID]("contractor_uuid", O.PrimaryKey)
+    def inn = column[String]("inn")
+    def kpp = column[Option[String]]("kpp")
+
+    def * = (id, inn, kpp) <> (Company.tupled, Company.unapply)
+  }
+  val companies = TableQuery[Companies]
+
+  class Friendships(tag: Tag) extends Table[Friendship](tag, "b2b_friendship") {
+    def id = column[UUID]("b2b_friendship_uuid", O.PrimaryKey)
+    def status = column[String]("status")
+    def initiatorId = column[UUID]("initiator_contractor_uuid")
+    def recipientId = column[UUID]("recipient_contractor_uuid")
+
+    def initiatorFk = foreignKey("b2b_friendship_initiator_contractor_uuid_idx", initiatorId, companies)(_.id)
+    def recipientFk = foreignKey("b2b_friendship_recipient_contractor_uuid_idx", recipientId, companies)(_.id)
+
+    def * = (id, initiatorId, recipientId, status) <> (Friendship.tupled, Friendship.unapply)
+  }
+  val friendships = TableQuery[Friendships]
 }

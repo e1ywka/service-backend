@@ -3,20 +3,23 @@
  */
 package ru.infotecs.edi.service
 
-import akka.actor.ActorRef
+import java.io.ByteArrayOutputStream
+import java.util.UUID
+
+import akka.actor.{ActorLogging, Props, ActorRef}
 import akka.pattern.ask
-import akka.util.Timeout
+import akka.util.{ByteString, Timeout}
 import ru.infotecs.edi.service.FileUploading._
 import spray.http._
 import spray.httpx.marshalling._
 import spray.httpx.unmarshalling._
 import spray.httpx.SprayJsonSupport._
-import spray.routing.{ExceptionHandler, HttpServiceActor}
+import spray.routing.{RequestContext, ExceptionHandler, HttpServiceActor}
 
 import scala.concurrent.duration._
-import scala.util.Try
+import scala.util.{Success, Try}
 
-class UploadService(fileUploading: ActorRef) extends HttpServiceActor {
+class UploadService(fileUploading: ActorRef) extends HttpServiceActor with ActorLogging {
   import ServiceJsonFormat._
   import context.dispatcher
 
@@ -64,13 +67,12 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor {
         entity(as[FileChunk]) { f =>
           detach() {
             complete {
-              fileUploading ? f map {
+              fileUploading ? f recover {
+                case e => log.error(e, "Error while handling file upload")
+              } map {
                 case FileChunkUploaded => HttpResponse(204)
                 case FileSavingFinished(fileId, fn) => HttpResponse(200, marshalUnsafe(UnformalDocument(fileId, fn, 1)))
-                case BufferingFinished(fileId, fn, b) => {
-                  Parser.validate(b)
-                  HttpResponse(200, s"File $fn is valid")
-                }
+                case BufferingFinished(fileId, fn, b) => HttpResponse(200, s"File $fn is valid")
               }
             }
           }

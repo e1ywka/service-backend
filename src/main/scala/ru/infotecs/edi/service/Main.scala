@@ -13,7 +13,7 @@ object Main extends App {
 
   implicit val system = ActorSystem()
 
-  val dal = PostgresDal("jdbc:postgresql://localhost:5433/edi-test?stringtype=unspecified&user=postgres&password=postgres")
+  val dal = PostgresDal("jdbc:postgresql://localhost:5433/edi?stringtype=unspecified&user=postgres&password=postgres")
 
   val fileUploading = system.actorOf(Props.create(classOf[FileUploading], dal))
   val handler = system.actorOf(Props.create(classOf[UploadService], fileUploading))

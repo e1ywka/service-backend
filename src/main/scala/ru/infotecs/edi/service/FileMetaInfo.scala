@@ -21,7 +21,7 @@ class FileMetaInfo(dal: Dal) extends Actor {
   def receive: Receive = {
     case FileChunk(_, _, Meta(name, size, sha256)) => {
       val s = sender()
-      val fileInfo = FileInfo(UUID.randomUUID(), UUID.fromString("df05c20a-230b-4ef8-8359-e86bed942cdf"), name, size, sha256.getBytes)
+      val fileInfo = FileInfo(UUID.randomUUID(), UUID.fromString("6401653c-e582-4959-9014-d36dcbfa344c"), name, size, sha256.getBytes)
       withCircuitBreaker {
         database.run(DBIO.seq(
           fileInfos += fileInfo
