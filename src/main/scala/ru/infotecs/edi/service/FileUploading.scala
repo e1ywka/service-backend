@@ -7,6 +7,7 @@ import akka.actor._
 import akka.pattern.{ask, pipe}
 import akka.util.{ByteString, Timeout}
 import ru.infotecs.edi.db.{FileInfo, Dal}
+import ru.infotecs.edi.security.Jwt
 import ru.infotecs.edi.service.FileHandler.FlushTo
 import ru.infotecs.edi.service.FileServerClient.Finish
 import ru.infotecs.edi.service.FileUploading._
@@ -24,6 +25,8 @@ object FileUploading {
   type ChunkOrder = (Int, Int)
 
   case class FileChunk(chunkOrder: ChunkOrder, file: BodyPart, meta: Meta)
+
+  case class AuthFileChunk(fileChunk: FileChunk, jwt: Jwt)
 
   case object FileChunkUploaded
 
@@ -43,7 +46,6 @@ class FileUploading(dal: Dal) extends Actor {
 
   import context._
 
-  val fileMetaProps = Props.create(classOf[FileMetaInfo], dal)
   def bufferingFileHandler(fileId: UUID) = Props.create(classOf[BufferingFileHandler], self, fileId, dal)
   def redirectFileHandler(fileId: UUID) = Props.create(classOf[RedirectFileHandler], self, fileId)
 
@@ -52,7 +54,7 @@ class FileUploading(dal: Dal) extends Actor {
   implicit val timeout: Timeout = 3 seconds
 
   def receive: Receive = {
-    case f@FileChunk((_, chunks), _, Meta(fileName, _, _)) => {
+    case f@AuthFileChunk(FileChunk((_, chunks), _, Meta(fileName, _, _)), jwt) => {
       val handler = fileHandlers.getOrElseUpdate(fileName, createFileHandler(f))
       handler forward f
     }
@@ -62,19 +64,19 @@ class FileUploading(dal: Dal) extends Actor {
     }
   }
 
-  def createFileHandler(fileChunk: FileChunk): ActorRef = {
-
-    val fileId: UUID = Await.result((actorOf(fileMetaProps) ? fileChunk).mapTo[FileInfo].map(_.id), Duration.Inf)
+  def createFileHandler(authFileChunk: AuthFileChunk): ActorRef = {
+    val fileMetaProps = Props.create(classOf[FileMetaInfo], dal, authFileChunk.jwt)
+    val fileId: UUID = Await.result((actorOf(fileMetaProps) ? authFileChunk.fileChunk).mapTo[FileInfo].map(_.id), Duration.Inf)
 
     val actor: ActorRef = {
-      if (fileChunk.meta.fileName.toLowerCase.endsWith("xml")) {
+      if (authFileChunk.fileChunk.meta.fileName.toLowerCase.endsWith("xml")) {
         actorOf(bufferingFileHandler(fileId))
       } else {
         actorOf(redirectFileHandler(fileId))
       }
     }
     watch(actor)
-    actor ! FileHandler.Init(fileChunk.chunkOrder._2)
+    actor ! FileHandler.Init(authFileChunk.fileChunk.chunkOrder._2)
     actor
   }
 }
@@ -103,7 +105,7 @@ abstract sealed class FileHandler(parent: ActorRef, fileId: UUID) extends Actor 
 
   def handlingUpload(fileChunk: FileChunk): Unit
 
-  def uploadFinishedMessage(fileName: String): Future[UploadFinished]
+  def uploadFinishedMessage(fileName: String, jwt: Jwt): Future[UploadFinished]
 
   def uploaded: Receive = {
     case _: FileChunk => {
@@ -113,16 +115,16 @@ abstract sealed class FileHandler(parent: ActorRef, fileId: UUID) extends Actor 
   }
 
   val handling: Receive = {
-    case f@FileChunk((chunk, chunks), filePart, Meta(fileName, _, _)) => {
+    case f@AuthFileChunk(FileChunk((chunk, chunks), filePart, Meta(fileName, _, _)), jwt) => {
       unstashAll()
       if (chunk == nextChunk) {
         nextChunk += 1
         // выполнять парсинг файла
         val recipient = sender()
-        handlingUpload(f)
+        handlingUpload(f.fileChunk)
         if (nextChunk == totalChunks) {
           context become uploaded
-          uploadFinishedMessage(fileName) pipeTo recipient
+          uploadFinishedMessage(fileName, jwt) pipeTo recipient
         } else {
           recipient ! FileChunkUploaded
         }
@@ -150,8 +152,8 @@ class BufferingFileHandler(parent: ActorRef, fileId: UUID, implicit val dal: Dal
 
   var fileBuilder = ByteString.empty
 
-  override def uploadFinishedMessage(fileName: String): Future[UploadFinished] = {
-    val senderCompanyId = UUID.fromString("0db659df-d54c-497a-bd7a-207283a20dc9")
+  override def uploadFinishedMessage(fileName: String, jwt: Jwt): Future[UploadFinished] = {
+    val senderCompanyId = UUID.fromString(jwt.cid)
     (for {
       xml <- Parser.read(fileBuilder)
       (converted, xml) <- Parser.convert(xml)
@@ -188,7 +190,7 @@ class RedirectFileHandler(parent: ActorRef, fileId: UUID) extends FileHandler(pa
 
   val fileServerConnector = context.actorOf(Props.create(classOf[DiskSave], "test"))
 
-  override def uploadFinishedMessage(fileName: String): Future[UploadFinished] = {
+  override def uploadFinishedMessage(fileName: String, jwt: Jwt): Future[UploadFinished] = {
     context unwatch fileServerConnector
     fileServerConnector ! Finish
     Future.successful(FileSavingFinished(fileId.toString, fileName))

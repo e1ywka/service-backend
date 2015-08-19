@@ -7,11 +7,12 @@ import java.util.UUID
 
 import akka.actor.{Actor, Status}
 import ru.infotecs.edi.db.{Dal, FileInfo}
+import ru.infotecs.edi.security.Jwt
 import ru.infotecs.edi.service.FileUploading.{FileChunk, Meta}
 
 import scala.util.{Failure, Success}
 
-class FileMetaInfo(dal: Dal) extends Actor {
+class FileMetaInfo(dal: Dal, jwt: Jwt) extends Actor {
 
   import dal._
   import dal.driver.api._
@@ -21,7 +22,7 @@ class FileMetaInfo(dal: Dal) extends Actor {
   def receive: Receive = {
     case FileChunk(_, _, Meta(name, size, sha256)) => {
       val s = sender()
-      val fileInfo = FileInfo(UUID.randomUUID(), UUID.fromString("6401653c-e582-4959-9014-d36dcbfa344c"), name, size, sha256.getBytes)
+      val fileInfo = FileInfo(UUID.randomUUID(), UUID.fromString(jwt.pid), name, size, sha256.getBytes)
       withCircuitBreaker {
         database.run(DBIO.seq(
           fileInfos += fileInfo
