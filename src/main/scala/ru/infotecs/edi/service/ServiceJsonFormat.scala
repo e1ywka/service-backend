@@ -3,8 +3,6 @@
  */
 package ru.infotecs.edi.service
 
-import java.util.UUID
-
 import spray.json.DefaultJsonProtocol
 
 abstract class Document(fileId: String, fileName: String, size: Long, docType: String)

@@ -9,6 +9,7 @@ import java.util.UUID
 import akka.actor.{ActorLogging, Props, ActorRef}
 import akka.pattern.ask
 import akka.util.{ByteString, Timeout}
+import ru.infotecs.edi.security.{InvalidJsonWebToken, ValidJsonWebToken, JsonWebToken}
 import ru.infotecs.edi.service.FileUploading._
 import spray.http._
 import spray.httpx.marshalling._
@@ -64,15 +65,21 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor with Actor
         }
       } ~
       post {
-        entity(as[FileChunk]) { f =>
-          detach() {
-            complete {
-              fileUploading ? f recover {
-                case e => log.error(e, "Error while handling file upload")
-              } map {
-                case FileChunkUploaded => HttpResponse(204)
-                case FileSavingFinished(fileId, fn) => HttpResponse(200, marshalUnsafe(UnformalDocument(fileId, fn, 1)))
-                case BufferingFinished(fileId, fn, b) => HttpResponse(200, s"File $fn is valid")
+        cookie("rememberme") { token =>
+          entity(as[FileChunk]) { f =>
+            detach() {
+              complete {
+                JsonWebToken(token.content) match {
+                  case InvalidJsonWebToken => HttpResponse(400, "Token is invalid")
+                  case ValidJsonWebToken(jws, jwt, _) =>
+                    fileUploading ? f recover {
+                      case e => log.error(e, "Error while handling file upload")
+                    } map {
+                      case FileChunkUploaded => HttpResponse(204)
+                      case FileSavingFinished(fileId, fn) => HttpResponse(200, marshalUnsafe(UnformalDocument(fileId, fn, 1)))
+                      case BufferingFinished(fileId, fn, b) => HttpResponse(200, s"File $fn is valid")
+                    }
+                }
               }
             }
           }
@@ -82,7 +89,7 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor with Actor
   }
 
   implicit val exceptionHanlder = ExceptionHandler {
-    case _ => complete(HttpResponse(500))
+    case e => complete(HttpResponse(500, e.getMessage))
   }
 
   lazy val formUpload =

@@ -29,3 +29,5 @@ libraryDependencies += "com.mchange" % "c3p0" % "0.9.5"
 libraryDependencies += "com.h2database" % "h2" % "1.4.188" % "test"
 
 libraryDependencies += "com.typesafe.slick" %% "slick" % "3.0.1"
+
+libraryDependencies += "net.iharder" % "base64" % "2.3.8"
