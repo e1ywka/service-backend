@@ -87,8 +87,8 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor with Actor
                         case e => log.error(e, "Error while handling file upload")
                       } map {
                         case FileChunkUploaded => HttpResponse(204)
-                        case FileSavingFinished(fileId, fn) => HttpResponse(200, marshalUnsafe(UnformalDocument(fileId, fn)))
-                        case BufferingFinished(fileId, fn, b) => HttpResponse(200, s"File $fn is valid")
+                        case informal: InformalDocument => HttpResponse(200, marshalUnsafe(informal))
+                        case formal: FormalDocument => HttpResponse(200, marshalUnsafe(formal))
                       }
                   }
                 }

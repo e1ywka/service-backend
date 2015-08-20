@@ -11,8 +11,8 @@ import ru.infotecs.edi.security.Jwt
 import ru.infotecs.edi.service.FileHandler.FlushTo
 import ru.infotecs.edi.service.FileServerClient.Finish
 import ru.infotecs.edi.service.FileUploading._
-import ru.infotecs.edi.xml.documents.clientDocuments.ClientDocument
-import spray.http.{HttpResponse, BodyPart}
+import ru.infotecs.edi.xml.documents.clientDocuments.{AbstractCorrectiveInvoice, AbstractInvoice, ClientDocument}
+import spray.http._
 
 import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
@@ -20,21 +20,35 @@ import scala.util.{Failure, Success}
 
 object FileUploading {
 
+  /**
+   * File's metadata computed by client.
+   * @param fileName user spcified file name.
+   * @param size total file size.
+   * @param sha256Hash SHA-256 file digest.
+   */
   case class Meta(fileName: String, size: Long, sha256Hash: String)
 
   type ChunkOrder = (Int, Int)
 
+  /**
+   * File chunk. Contains order number of all chunks, data of that chunk, and original file metadata.
+   * @param chunkOrder order number of that chunk and total chunk count.
+   * @param file file chunk data.
+   * @param meta original file metadata.
+   */
   case class FileChunk(chunkOrder: ChunkOrder, file: BodyPart, meta: Meta)
 
+  /**
+   * Represent file chunk and authorization token sent by client.
+   * @param fileChunk file chunk.
+   * @param jwt authorization token.
+   */
   case class AuthFileChunk(fileChunk: FileChunk, jwt: Jwt)
 
+  /**
+   * Message that is sent back to connection layer when file part successfully processed.
+   */
   case object FileChunkUploaded
-
-  abstract class UploadFinished(fileId: String, fileName: String, needParsing: Boolean)
-
-  case class BufferingFinished(fileId: String, fileName: String, b: ByteString) extends UploadFinished(fileId, fileName, true)
-
-  case class FileSavingFinished(fileId: String, fileName: String) extends UploadFinished(fileId, fileName, false)
 }
 
 /**
@@ -43,7 +57,7 @@ object FileUploading {
  * @param dal database access.
  */
 class FileUploading(dal: Dal) extends Actor {
-
+  import MediaTypes.`text/xml`
   import context._
 
   def bufferingFileHandler(fileId: UUID) = Props.create(classOf[FormalizedFileHandler], self, fileId, dal)
@@ -59,9 +73,8 @@ class FileUploading(dal: Dal) extends Actor {
       handler forward f
     }
 
-    case Terminated(h) => {
+    case Terminated(h) =>
       fileHandlers.retain((_, handler) => !handler.equals(h))
-    }
   }
 
   def createFileHandler(authFileChunk: AuthFileChunk): ActorRef = {
@@ -69,10 +82,13 @@ class FileUploading(dal: Dal) extends Actor {
     val fileId: UUID = Await.result((actorOf(fileMetaProps) ? authFileChunk.fileChunk).mapTo[FileInfo].map(_.id), Duration.Inf)
 
     val actor: ActorRef = {
-      if (authFileChunk.fileChunk.meta.fileName.toLowerCase.endsWith("xml")) {
-        actorOf(bufferingFileHandler(fileId))
-      } else {
-        actorOf(redirectFileHandler(fileId))
+      val contentType: Option[ContentType] = authFileChunk.fileChunk.file.entity match {
+        case HttpEntity.NonEmpty(c, _) => Some(c)
+        case _ => None
+      }
+      contentType match {
+        case Some(ContentType(`text/xml`, _)) => actorOf(bufferingFileHandler(fileId))
+        case _ => actorOf(redirectFileHandler(fileId))
       }
     }
     watch(actor)
@@ -105,14 +121,7 @@ abstract sealed class FileHandler(parent: ActorRef, fileId: UUID) extends Actor 
 
   def handlingUpload(fileChunk: FileChunk): Unit
 
-  def uploadFinishedMessage(fileName: String, jwt: Jwt): Future[UploadFinished]
-
-  def uploaded: Receive = {
-    case _: FileChunk => {
-      // логировать сообщение об ошибке
-      println("boo!")
-    }
-  }
+  def uploadFinishedMessage(fileName: String, jwt: Jwt): Future[Any]
 
   val handling: Receive = {
     case f@AuthFileChunk(FileChunk((chunk, chunks), filePart, Meta(fileName, _, _)), jwt) => {
@@ -123,8 +132,8 @@ abstract sealed class FileHandler(parent: ActorRef, fileId: UUID) extends Actor 
         val recipient = sender()
         handlingUpload(f.fileChunk)
         if (nextChunk == totalChunks) {
-          context become uploaded
           uploadFinishedMessage(fileName, jwt) pipeTo recipient
+          context.stop(self)
         } else {
           recipient ! FileChunkUploaded
         }
@@ -151,24 +160,47 @@ abstract sealed class FileHandler(parent: ActorRef, fileId: UUID) extends Actor 
 class FormalizedFileHandler(parent: ActorRef, fileId: UUID, implicit val dal: Dal) extends FileHandler(parent, fileId) {
 
   var fileBuilder = ByteString.empty
+  val fileStore = context.actorOf(Props.create(classOf[DiskSave], "test"))
 
-  override def uploadFinishedMessage(fileName: String, jwt: Jwt): Future[UploadFinished] = {
+  override def uploadFinishedMessage(fileName: String, jwt: Jwt): Future[Any] = {
     val senderCompanyId = UUID.fromString(jwt.cid)
     (for {
       xml <- Parser.read(fileBuilder)
       (converted, xml) <- Parser.convert(xml)
       (recipient, xml) <- Parser.checkRequisites(xml, senderCompanyId)
       xml <- Parser.modify(xml)
-    } yield xml) andThen {
-      case Success(xml) => {
-        val actor = context.actorOf(Props.create(classOf[DiskSave], "test"))
+    } yield (xml, converted, recipient)) andThen {
+      case Success((xml, _, _)) => {
         val baos = new ByteArrayOutputStream()
         xml.write(baos)
-        actor ! ByteString.fromArray(baos.toByteArray)
-        actor ! Finish
+        fileStore ! ByteString.fromArray(baos.toByteArray)
+        fileStore ! Finish
       }
     } map {
-      case xml => BufferingFinished(fileId.toString, fileName, ByteString.empty)
+      case (xml, converted, recipient) => {
+        val invoiceChangeNumber = xml match {
+          case x: AbstractInvoice if x.getChangeNumber != null => Some(x.getChangeNumber)
+          case _ => None
+        }
+        val invoiceCorrectionNumber = xml match {
+          case x: AbstractCorrectiveInvoice if x.getNumber != null => Some(x.getNumber)
+          case _ => None
+        }
+        FormalDocument(fileId.toString,
+          fileName,
+          xml.getType.getFnsPrefix,
+          converted,
+          xml.getName,
+          recipient.map(_.toString),
+          FormalDocumentParams(xml.getPrimaryNumber,
+            xml.getPrimaryDate.toInstant.getEpochSecond.toString,
+            //todo при реализации метода Parser.modify это поле будет всегда указываться
+            "",
+            invoiceChangeNumber,
+            invoiceCorrectionNumber
+          )
+        )
+      }
     }
   }
 
@@ -176,10 +208,6 @@ class FormalizedFileHandler(parent: ActorRef, fileId: UUID, implicit val dal: Da
     import fileChunk._
     // выполнять парсинг файла
     fileBuilder = fileBuilder ++ file.entity.data.toByteString
-  }
-
-  override def uploaded: Receive = super.uploaded orElse {
-    case FlushTo(ref) => ref ! fileBuilder
   }
 }
 
@@ -190,10 +218,10 @@ class InformalFileHandler(parent: ActorRef, fileId: UUID) extends FileHandler(pa
 
   val fileServerConnector = context.actorOf(Props.create(classOf[DiskSave], "test"))
 
-  override def uploadFinishedMessage(fileName: String, jwt: Jwt): Future[UploadFinished] = {
+  override def uploadFinishedMessage(fileName: String, jwt: Jwt): Future[Any] = {
     context unwatch fileServerConnector
     fileServerConnector ! Finish
-    Future.successful(FileSavingFinished(fileId.toString, fileName))
+    Future.successful(InformalDocument(fileId.toString, fileName))
   }
 
   def handlingUpload(fileChunk: FileChunk) = {

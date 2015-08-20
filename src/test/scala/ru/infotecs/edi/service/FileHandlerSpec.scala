@@ -42,7 +42,7 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
       val actorRef = system.actorOf(Props.create(classOf[FormalizedFileHandler], self))
       actorRef ! Init(totalChunks)
       actorRef ! FileChunk((0, totalChunks), BodyPart(message, "file"), Meta("fileName", 17, "123"))
-      expectMsgClass(classOf[BufferingFinished])
+      expectMsgClass(classOf[FormalDocument])
     }
 
     "respect ordering of chunks" in {
@@ -52,7 +52,7 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
       actorRef ! FileChunk((1, totalChunks), BodyPart("</entity>", "file"), Meta("fileName", 9, "123"))
       actorRef ! FileChunk((0, totalChunks), BodyPart("<entity>", "file"), Meta("fileName", 8, "123"))
       expectMsg(FileChunkUploaded)
-      expectMsgClass(classOf[BufferingFinished])
+      expectMsgClass(classOf[FormalDocument])
 
       val probe = TestProbe()
       actorRef ! FlushTo(probe.ref)
