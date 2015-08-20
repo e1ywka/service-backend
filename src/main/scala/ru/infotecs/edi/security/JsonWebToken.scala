@@ -10,7 +10,7 @@ import ru.infotecs.edi.security.Alg.Alg
 
 import spray.json.DefaultJsonProtocol
 
-case class Jwt(iss: String, sub: Option[String], aud: Vector[String], exp: Long, nbf: Option[Long], iat: Long,
+case class Jwt(iss: String, sub: Option[String], aud: Vector[String], exp: String, nbf: Option[String], iat: String,
                jti: Option[String], cty: Option[String], pid: String, cid: String)
 
 case class Jws(alg: Alg, typ: String)

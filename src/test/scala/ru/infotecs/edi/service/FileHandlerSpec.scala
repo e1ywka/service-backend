@@ -31,7 +31,7 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
 
     "become handling on Init message" in {
       val totalChunks = 2
-      val actorRef = system.actorOf(Props.create(classOf[BufferingFileHandler], self))
+      val actorRef = system.actorOf(Props.create(classOf[FormalizedFileHandler], self))
       actorRef ! Init(totalChunks)
       actorRef ! FileChunk((0, totalChunks), BodyPart(message, "file"), Meta("fileName", 17, "123"))
       expectMsg(FileChunkUploaded)
@@ -39,7 +39,7 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
 
     "respond with UploadFinished" in {
       val totalChunks = 1
-      val actorRef = system.actorOf(Props.create(classOf[BufferingFileHandler], self))
+      val actorRef = system.actorOf(Props.create(classOf[FormalizedFileHandler], self))
       actorRef ! Init(totalChunks)
       actorRef ! FileChunk((0, totalChunks), BodyPart(message, "file"), Meta("fileName", 17, "123"))
       expectMsgClass(classOf[BufferingFinished])
@@ -47,7 +47,7 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
 
     "respect ordering of chunks" in {
       val totalChunks = 2
-      val actorRef = system.actorOf(Props.create(classOf[BufferingFileHandler], self))
+      val actorRef = system.actorOf(Props.create(classOf[FormalizedFileHandler], self))
       actorRef ! Init(totalChunks)
       actorRef ! FileChunk((1, totalChunks), BodyPart("</entity>", "file"), Meta("fileName", 9, "123"))
       actorRef ! FileChunk((0, totalChunks), BodyPart("<entity>", "file"), Meta("fileName", 8, "123"))

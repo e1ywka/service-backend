@@ -46,8 +46,8 @@ class FileUploading(dal: Dal) extends Actor {
 
   import context._
 
-  def bufferingFileHandler(fileId: UUID) = Props.create(classOf[BufferingFileHandler], self, fileId, dal)
-  def redirectFileHandler(fileId: UUID) = Props.create(classOf[RedirectFileHandler], self, fileId)
+  def bufferingFileHandler(fileId: UUID) = Props.create(classOf[FormalizedFileHandler], self, fileId, dal)
+  def redirectFileHandler(fileId: UUID) = Props.create(classOf[InformalFileHandler], self, fileId)
 
   val fileHandlers = new scala.collection.mutable.HashMap[String, ActorRef]
 
@@ -148,7 +148,7 @@ abstract sealed class FileHandler(parent: ActorRef, fileId: UUID) extends Actor 
 /**
  * Кэширование загружаемого файла в памяти.
  */
-class BufferingFileHandler(parent: ActorRef, fileId: UUID, implicit val dal: Dal) extends FileHandler(parent, fileId) {
+class FormalizedFileHandler(parent: ActorRef, fileId: UUID, implicit val dal: Dal) extends FileHandler(parent, fileId) {
 
   var fileBuilder = ByteString.empty
 
@@ -186,7 +186,7 @@ class BufferingFileHandler(parent: ActorRef, fileId: UUID, implicit val dal: Dal
 /**
  * Передача частей файла в персистентное хранилище.
  */
-class RedirectFileHandler(parent: ActorRef, fileId: UUID) extends FileHandler(parent, fileId) {
+class InformalFileHandler(parent: ActorRef, fileId: UUID) extends FileHandler(parent, fileId) {
 
   val fileServerConnector = context.actorOf(Props.create(classOf[DiskSave], "test"))
 

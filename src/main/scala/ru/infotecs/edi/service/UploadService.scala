@@ -3,22 +3,19 @@
  */
 package ru.infotecs.edi.service
 
-import java.io.ByteArrayOutputStream
-import java.util.UUID
-
-import akka.actor.{ActorLogging, Props, ActorRef}
+import akka.actor.{ActorLogging, ActorRef}
 import akka.pattern.ask
-import akka.util.{ByteString, Timeout}
-import ru.infotecs.edi.security.{InvalidJsonWebToken, ValidJsonWebToken, JsonWebToken}
+import akka.util.Timeout
+import ru.infotecs.edi.security.{InvalidJsonWebToken, JsonWebToken, ValidJsonWebToken}
 import ru.infotecs.edi.service.FileUploading._
 import spray.http._
+import spray.httpx.SprayJsonSupport._
 import spray.httpx.marshalling._
 import spray.httpx.unmarshalling._
-import spray.httpx.SprayJsonSupport._
-import spray.routing.{RequestContext, ExceptionHandler, HttpServiceActor}
+import spray.routing.{ExceptionHandler, HttpServiceActor}
 
 import scala.concurrent.duration._
-import scala.util.{Success, Try}
+import scala.util.Try
 
 class UploadService(fileUploading: ActorRef) extends HttpServiceActor with ActorLogging {
   import ServiceJsonFormat._
@@ -49,7 +46,7 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor with Actor
         fileHashBodyPart <- data.get("sha256hash")
         meta <- Some(Meta(fileNameBodyPart.entity.asString,
           fileSize,
-          fileNameBodyPart.entity.asString))
+          fileHashBodyPart.entity.asString))
       } yield FileUploading.FileChunk((chunk, chunks), file, meta)
 
       fileUpload match {
@@ -57,28 +54,43 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor with Actor
       }
     }
 
-  def receive = runRoute {
-    path("upload") {
+  val uploadServiceRoute = {
+    (pathPrefix("upload") & pathEndOrSingleSlash) {
       get {
         respondWithMediaType(MediaTypes.`text/html`) {
           complete(formUpload)
         }
       } ~
+      options {
+        respondWithHeaders(
+          HttpHeaders.`Access-Control-Allow-Origin`(SomeOrigins(HttpOrigin("http://localhost:9080") :: Nil)),
+          HttpHeaders.`Access-Control-Allow-Credentials`(true),
+          HttpHeaders.`Access-Control-Allow-Methods`(HttpMethods.GET, HttpMethods.POST, HttpMethods.OPTIONS),
+          HttpHeaders.`Access-Control-Allow-Headers`("Content-Type")
+        ) {
+          complete(HttpResponse(200))
+        }
+      } ~
       post {
-        cookie("rememberme") { token =>
-          entity(as[FileChunk]) { f =>
-            detach() {
-              complete {
-                JsonWebToken(token.content) match {
-                  case InvalidJsonWebToken => HttpResponse(400, "Token is invalid")
-                  case ValidJsonWebToken(jws, jwt, _) =>
-                    fileUploading ? AuthFileChunk(f, jwt) recover {
-                      case e => log.error(e, "Error while handling file upload")
-                    } map {
-                      case FileChunkUploaded => HttpResponse(204)
-                      case FileSavingFinished(fileId, fn) => HttpResponse(200, marshalUnsafe(UnformalDocument(fileId, fn, 1)))
-                      case BufferingFinished(fileId, fn, b) => HttpResponse(200, s"File $fn is valid")
-                    }
+        respondWithHeaders(
+          HttpHeaders.`Access-Control-Allow-Origin`(SomeOrigins(HttpOrigin("http://localhost:9080") :: Nil)),
+          HttpHeaders.`Access-Control-Allow-Credentials`(true)
+        ) {
+          cookie("rememberme") { token =>
+            entity(as[FileChunk]) { f =>
+              detach() {
+                complete {
+                  JsonWebToken(token.content) match {
+                    case InvalidJsonWebToken => HttpResponse(400, "Token is invalid")
+                    case ValidJsonWebToken(jws, jwt, _) =>
+                      fileUploading ? AuthFileChunk(f, jwt) recover {
+                        case e => log.error(e, "Error while handling file upload")
+                      } map {
+                        case FileChunkUploaded => HttpResponse(204)
+                        case FileSavingFinished(fileId, fn) => HttpResponse(200, marshalUnsafe(UnformalDocument(fileId, fn)))
+                        case BufferingFinished(fileId, fn, b) => HttpResponse(200, s"File $fn is valid")
+                      }
+                  }
                 }
               }
             }
@@ -87,6 +99,8 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor with Actor
       }
     }
   }
+
+  def receive = runRoute(uploadServiceRoute)
 
   implicit val exceptionHanlder = ExceptionHandler {
     case e => complete(HttpResponse(500, e.getMessage))
