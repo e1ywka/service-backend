@@ -5,33 +5,40 @@ package ru.infotecs.edi.db
 
 import java.util.UUID
 
-import org.scalatest.{BeforeAndAfter, BeforeAndAfterAll, Matchers, FlatSpec}
+import org.scalatest._
 import slick.driver.H2Driver.api._
 
-import scala.concurrent.Await
+import scala.concurrent.{Future, Await}
 import scala.concurrent.duration.Duration
 import scala.util.{Failure, Success}
 
-class CompanyModelSpec extends FlatSpec with Matchers with BeforeAndAfterAll with BeforeAndAfter {
+class CompanyModelSpec extends FlatSpec with Matchers with BeforeAndAfterAll with BeforeAndAfterEach {
 
   import scala.concurrent.ExecutionContext.Implicits.global
 
   val dal = H2Dal("h2mem1")
   val ddl = dal.companies.schema ++ dal.friendships.schema
+  var ddlFuture: Future[Any] = Future.failed(null)
+  var ddlDropFuture: Future[Any] = Future.successful(None)
 
   override protected def afterAll(): Unit = {
     dal.database.close()
   }
 
-  after {
-    dal.database.run(ddl.drop)
+  override protected def beforeEach = {
+    ddlFuture = dal.database.run(ddl.create)
+  }
+
+  override protected def afterEach = {
+    ddlDropFuture = dal.database.run(ddl.drop)
   }
 
   "Find by id" should "query company table by id field" in {
     val company = Company(UUID.randomUUID(), "0100000000", None, false, None)
 
     val c = for {
-      ddl <- dal.database.run(ddl.create)
+      ddlDrop <- ddlDropFuture
+      ddl <- ddlFuture
       ins <- dal.database.run(
         dal.companies += company
       )
@@ -49,7 +56,8 @@ class CompanyModelSpec extends FlatSpec with Matchers with BeforeAndAfterAll wit
     val company = Company(UUID.randomUUID(), "0100000000", None, false, None)
 
     val c = for {
-      ddl <- dal.database.run(ddl.create)
+      ddlDrop <- ddlDropFuture
+      ddl <- ddlFuture
       ins <- dal.database.run(
         dal.companies += company
       )
@@ -69,8 +77,9 @@ class CompanyModelSpec extends FlatSpec with Matchers with BeforeAndAfterAll wit
     val friendship = Friendship(UUID.randomUUID(), company1.id, company2.id, "ACCEPTED")
 
     val f = for {
+      ddlDrop <- ddlDropFuture
+      ddl <- ddlFuture
       ins <- dal.database.run(DBIO.seq(
-        ddl.create,
         dal.companies += company1,
         dal.companies += company2,
         dal.friendships += friendship
