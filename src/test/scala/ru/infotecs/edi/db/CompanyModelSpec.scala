@@ -12,37 +12,27 @@ import scala.concurrent.{Future, Await}
 import scala.concurrent.duration.Duration
 import scala.util.{Failure, Success}
 
-class CompanyModelSpec extends FlatSpec with Matchers with BeforeAndAfterAll with BeforeAndAfterEach {
+class CompanyModelSpec extends FlatSpec with Matchers with BeforeAndAfterAll {
 
   import scala.concurrent.ExecutionContext.Implicits.global
 
   val dal = H2Dal("h2mem1")
   val ddl = dal.companies.schema ++ dal.friendships.schema
-  var ddlFuture: Future[Any] = Future.failed(null)
-  var ddlDropFuture: Future[Any] = Future.successful(None)
 
   override protected def afterAll(): Unit = {
     dal.database.close()
-  }
-
-  override protected def beforeEach = {
-    ddlFuture = dal.database.run(ddl.create)
-  }
-
-  override protected def afterEach = {
-    ddlDropFuture = dal.database.run(ddl.drop)
   }
 
   "Find by id" should "query company table by id field" in {
     val company = Company(UUID.randomUUID(), "0100000000", None, false, None)
 
     val c = for {
-      ddlDrop <- ddlDropFuture
-      ddl <- ddlFuture
+      ddlCreate <- dal.database.run(ddl.create)
       ins <- dal.database.run(
         dal.companies += company
       )
       savedCompany <- dal.database.run(dal.find(company.id).result.headOption)
+      ddlDrop <- dal.database.run(ddl.drop)
     } yield savedCompany
     Await.ready(c, Duration(1, "second"))
     c.value match {
@@ -56,12 +46,12 @@ class CompanyModelSpec extends FlatSpec with Matchers with BeforeAndAfterAll wit
     val company = Company(UUID.randomUUID(), "0100000000", None, false, None)
 
     val c = for {
-      ddlDrop <- ddlDropFuture
-      ddl <- ddlFuture
+      ddlCreate <- dal.database.run(ddl.create)
       ins <- dal.database.run(
         dal.companies += company
       )
       savedCompany <- dal.database.run(dal.find("0100000000", None).result.headOption)
+      ddlDrop <- dal.database.run(ddl.drop)
     } yield savedCompany
     Await.ready(c, Duration(1, "second"))
     c.value match {
@@ -77,14 +67,14 @@ class CompanyModelSpec extends FlatSpec with Matchers with BeforeAndAfterAll wit
     val friendship = Friendship(UUID.randomUUID(), company1.id, company2.id, "ACCEPTED")
 
     val f = for {
-      ddlDrop <- ddlDropFuture
-      ddl <- ddlFuture
+      ddlCreate <- dal.database.run(ddl.create)
       ins <- dal.database.run(DBIO.seq(
         dal.companies += company1,
         dal.companies += company2,
         dal.friendships += friendship
       ))
       areFriends <- dal.database.run(dal.companiesAreFriends(company1.id, company2.id).head)
+      ddlDrop <- dal.database.run(ddl.drop)
     } yield areFriends
     Await.ready(f, Duration(1, "second"))
     f.value match {
