@@ -46,7 +46,7 @@ class DbSpec extends FlatSpec with Matchers with BeforeAndAfterAll {
   }
 
   it should "insert value into Company" in {
-    val company = Company(UUID.randomUUID(), "0100000000", None)
+    val company = Company(UUID.randomUUID(), "0100000000", None, false, None)
 
     val c = for {
       ddl <- dal.database.run(dal.companies.schema.create)

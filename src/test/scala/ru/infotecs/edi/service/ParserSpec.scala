@@ -9,7 +9,7 @@ import java.util.UUID
 import akka.util.ByteString
 import org.scalatest.prop.TableDrivenPropertyChecks
 import org.scalatest.{BeforeAndAfter, BeforeAndAfterAll, FlatSpec, Matchers}
-import ru.infotecs.edi.db.{Friendship, Company, H2Dal}
+import ru.infotecs.edi.db.{Person, Friendship, Company, H2Dal}
 import slick.driver.H2Driver.api._
 
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -27,19 +27,21 @@ with BeforeAndAfter with BeforeAndAfterAll with TableDrivenPropertyChecks {
     dal.database.close()
   }
 
-  def companies: Future[(UUID, UUID)] = {
+  def companies: Future[(UUID, UUID, UUID)] = {
     val cid1 = UUID.randomUUID()
     val cid2 = UUID.randomUUID()
+    val pid = UUID.randomUUID()
     for {
       schema <- dal.database.run(ddl.create)
       f <- dal.database.run(DBIO.seq(
         dal.companies ++= Seq (
-          Company(cid1, "0100000000", Some("010000000")),
-          Company(cid2, "0200000000", Some("010000000"))
+          Company(cid1, "0100000000", Some("010000000"), false, None),
+          Company(cid2, "0200000000", Some("010000000"), false, None)
         ),
-      dal.friendships += Friendship(UUID.randomUUID(), cid1, cid2, "ACCEPTED")
-      ))
-    } yield (cid1, cid2)
+        dal.friendships += Friendship(UUID.randomUUID(), cid1, cid2, "ACCEPTED"),
+        dal.persons += Person(pid, "LastName", "FirstName", Some("MiddleName")))
+      )
+    } yield (pid, cid1, cid2)
   }
 
   after {
@@ -53,11 +55,11 @@ with BeforeAndAfter with BeforeAndAfterAll with TableDrivenPropertyChecks {
   forAll(validDocuments) { (fileName: String) =>
     val b: ByteString = ByteString.fromArray(Files.readAllBytes(Paths.get(getClass.getResource(fileName).toURI)))
     val clientDocument = for {
-      (cid1, cid2) <- companies
+      (pid, cid1, cid2) <- companies
       xml <- Parser.read(b)
       (converted, xml) <- Parser.convert(xml)
       (recipient, xml) <- Parser.checkRequisites(xml, cid1)
-      xml <- Parser.modify(xml)
+      xml <- Parser.modify(UUID.randomUUID(), pid, cid1, Some(cid2), xml)
     } yield xml
     Await.ready(clientDocument, Duration(10, "seconds"))
     clientDocument.value match {

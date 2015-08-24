@@ -164,11 +164,12 @@ class FormalizedFileHandler(parent: ActorRef, fileId: UUID, implicit val dal: Da
 
   override def uploadFinishedMessage(fileName: String, jwt: Jwt): Future[Any] = {
     val senderCompanyId = UUID.fromString(jwt.cid)
+    val senderId = UUID.fromString(jwt.pid)
     (for {
       xml <- Parser.read(fileBuilder)
       (converted, xml) <- Parser.convert(xml)
       (recipient, xml) <- Parser.checkRequisites(xml, senderCompanyId)
-      xml <- Parser.modify(xml)
+      xml <- Parser.modify(fileId, senderId, senderCompanyId, recipient, xml)
     } yield (xml, converted, recipient)) andThen {
       case Success((xml, _, _)) => {
         val baos = new ByteArrayOutputStream()

@@ -28,7 +28,7 @@ class CompanyModelSpec extends FlatSpec with Matchers with BeforeAndAfterAll wit
   }
 
   "Find by id" should "query company table by id field" in {
-    val company = Company(UUID.randomUUID(), "0100000000", None)
+    val company = Company(UUID.randomUUID(), "0100000000", None, false, None)
 
     val c = for {
       ddl <- dal.database.run(ddl.create)
@@ -46,7 +46,7 @@ class CompanyModelSpec extends FlatSpec with Matchers with BeforeAndAfterAll wit
   }
 
   "Find by inn and kpp" should "query company table by inn and kpp fields" in {
-    val company = Company(UUID.randomUUID(), "0100000000", None)
+    val company = Company(UUID.randomUUID(), "0100000000", None, false, None)
 
     val c = for {
       ddl <- dal.database.run(ddl.create)
@@ -64,8 +64,8 @@ class CompanyModelSpec extends FlatSpec with Matchers with BeforeAndAfterAll wit
   }
 
   "Method companiesAreFriends" should "return 'true' if two companies have b2b_friendship record" in {
-    val company1 = Company(UUID.randomUUID(), "0100000000", None)
-    val company2 = Company(UUID.randomUUID(), "0200000000", None)
+    val company1 = Company(UUID.randomUUID(), "0100000000", None, false, None)
+    val company2 = Company(UUID.randomUUID(), "0200000000", None, false, None)
     val friendship = Friendship(UUID.randomUUID(), company1.id, company2.id, "ACCEPTED")
 
     val f = for {

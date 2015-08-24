@@ -5,31 +5,25 @@ package ru.infotecs.edi.service
 
 import java.util.UUID
 
-import akka.actor.Actor
 import akka.util.ByteString
+import ru.infotecs.edi.UUIDUtils.noDashString
 import ru.infotecs.edi.db.Dal
-import ru.infotecs.edi.service.Parser.{InvalidXml, Parsing, ParsingResult, ValidXml}
 import ru.infotecs.edi.xml.documents.XMLDocumentReader
 import ru.infotecs.edi.xml.documents.clientDocuments.ClientDocument
 import ru.infotecs.edi.xml.documents.converter.ClientDocumentConverter
-import ru.infotecs.edi.xml.documents.elements.{EntrepreneurInfo, LegalEntityInfo}
+import ru.infotecs.edi.xml.documents.elements.signatory.{EntrepreneurSignatory, LegalEntitySignatory, Signatory}
+import ru.infotecs.edi.xml.documents.elements.{EntrepreneurInfo, LegalEntityInfo, PersonName}
 
-
-import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Failure, Success, Try}
+import scala.concurrent.Future
+import scala.util.Try
 
 object Parser {
+
   import scala.concurrent.ExecutionContext.Implicits.global
 
-  trait ParsingResult
-
-  case object Parsing extends ParsingResult
-
-  case object ValidXml extends ParsingResult
-
-  case class InvalidXml(message: String) extends ParsingResult
-
-  case class Doc(format: String, converted: Boolean, warning: String)
+  val OperatorFnsId: String = "2АН"
+  val OperatorCompanyName = ""
+  val OperatorCompanyInn = ""
 
   def read(b: ByteString): Future[ClientDocument] = Future.fromTry(Try {
     val xmlDocument = XMLDocumentReader.read(b.iterator.asInputStream)
@@ -95,36 +89,44 @@ object Parser {
     }
   }
 
-  def modify(xmlDocument: ClientDocument): Future[ClientDocument] = Future.successful(xmlDocument)
-}
+  def modify(fileId: UUID,
+             senderPersonId: UUID,
+             senderCompanyId: UUID,
+             recipientCompanyId: Option[UUID],
+             xmlDocument: ClientDocument)(implicit dal: Dal): Future[ClientDocument] = {
+    import dal.driver.api._
 
-/**
- * Actor performs parsing xml documents and checks its validity.
- */
-class Parser extends Actor {
-
-  implicit val ec = context.dispatcher
-
-  var file: ByteString = _
-
-  def receive: Receive = {
-    case f: ByteString => Future {
-      Parser.read(f)
-    } andThen {
-      case Success(doc: ClientDocument) => doc.write(Console.out)
-      case Failure(e) => println(e.getMessage)
-    } recoverWith {
-      case e: Exception => {
-        context become parsingResult(InvalidXml(e.getMessage))
-        Future.failed(e)
+    val signerFuture = dal.database.run(dal.findPersonById(senderPersonId).result.head)
+    val senderCompanyFuture = dal.database.run(dal.find(senderCompanyId).result.head)
+    for {
+      signer <- signerFuture
+      senderCompany <- senderCompanyFuture
+    } yield {
+      xmlDocument.setDocumentFileId(fileId)
+      xmlDocument.setSenderId(OperatorFnsId + noDashString(senderCompanyId))
+      if (recipientCompanyId.isDefined) {
+        xmlDocument.setRecipientId(OperatorFnsId + noDashString(recipientCompanyId.get))
       }
-    } foreach (_ => {
-      context become parsingResult(ValidXml)
-    })
-      context become parsingResult(Parsing)
-  }
+      xmlDocument.setOperatorInfo(OperatorFnsId, OperatorCompanyName, OperatorCompanyInn)
 
-  def parsingResult(parsingResult: ParsingResult): Receive = {
-    case _ => parsingResult
+      val personName = new PersonName(signer.lastName, signer.firstName, signer.middleName.orNull)
+      val signatory: Signatory = {
+        if (senderCompany.isEntrepreneur) {
+          new EntrepreneurSignatory(senderCompany.inn,
+            personName,
+            senderCompany.entrepreneurGosRegCertificate.orNull)
+        } else {
+          new LegalEntitySignatory(senderCompany.inn,
+            personName,
+            null)
+        }
+      }
+      xmlDocument.setSignatory(signatory)
+
+      if (xmlDocument.getExternalInteractionId == null) {
+        xmlDocument.setExternalInteractionId(UUID.randomUUID())
+      }
+      xmlDocument
+    }
   }
 }

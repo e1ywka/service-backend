@@ -8,7 +8,7 @@ import akka.pattern.CircuitBreaker
 import scala.concurrent.Future
 import scala.concurrent.duration._
 
-abstract class Dal extends DriverComponent with DbModel with CompanyModel {
+abstract class Dal extends DriverComponent with DbModel with CompanyModel with PersonModel {
   import driver.api._
 
   val database: Database

@@ -17,9 +17,11 @@ import slick.lifted.ForeignKey
  */
 case class FileInfo(id: UUID, uploader: UUID, name: String, size: Long, sha256: Array[Byte])
 
-case class Company(id: UUID, inn: String, kpp: Option[String])
+case class Company(id: UUID, inn: String, kpp: Option[String], isEntrepreneur: Boolean, entrepreneurGosRegCertificate: Option[String])
 
 case class Friendship(id: UUID, initiatorId: UUID, recipientId: UUID, status: String)
+
+case class Person(id: UUID, lastName: String, firstName: String, middleName: Option[String])
 
 /**
  * DB schema description.
@@ -45,8 +47,10 @@ trait DbModel { this: DriverComponent =>
     def id = column[UUID]("contractor_uuid", O.PrimaryKey)
     def inn = column[String]("inn")
     def kpp = column[Option[String]]("kpp")
+    def isEntrepreneur = column[Boolean]("entrepreneur")
+    def entrepreneurGosRegCertificate = column[Option[String]]("entrepreneur_gos_reg_certificate")
 
-    def * = (id, inn, kpp) <> (Company.tupled, Company.unapply)
+    def * = (id, inn, kpp, isEntrepreneur, entrepreneurGosRegCertificate) <> (Company.tupled, Company.unapply)
   }
   val companies = TableQuery[Companies]
 
@@ -62,4 +66,14 @@ trait DbModel { this: DriverComponent =>
     def * = (id, initiatorId, recipientId, status) <> (Friendship.tupled, Friendship.unapply)
   }
   val friendships = TableQuery[Friendships]
+
+  class Persons(tag: Tag) extends Table[Person](tag, "person") {
+    def id = column[UUID]("b2b_friendship_uuid", O.PrimaryKey)
+    def lastName = column[String]("last_name")
+    def firstName = column[String]("first_name")
+    def middleName = column[Option[String]]("middle_name")
+
+    def * = (id, lastName, firstName, middleName) <> (Person.tupled, Person.unapply)
+  }
+  val persons = TableQuery[Persons]
 }
