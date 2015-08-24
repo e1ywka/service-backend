@@ -6,16 +6,16 @@ import java.util.UUID
 import akka.actor._
 import akka.pattern.{ask, pipe}
 import akka.util.{ByteString, Timeout}
-import ru.infotecs.edi.db.{FileInfo, Dal}
+import ru.infotecs.edi.db.{Dal, FileInfo}
 import ru.infotecs.edi.security.Jwt
-import ru.infotecs.edi.service.FileHandler.FlushTo
 import ru.infotecs.edi.service.FileServerClient.Finish
 import ru.infotecs.edi.service.FileUploading._
-import ru.infotecs.edi.xml.documents.clientDocuments.{AbstractCorrectiveInvoice, AbstractInvoice, ClientDocument}
+import ru.infotecs.edi.xml.documents.clientDocuments.{AbstractCorrectiveInvoice, AbstractInvoice}
+import ru.infotecs.edi.xml.documents.exceptions.ParseDocumentException
 import spray.http._
 
-import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
+import scala.concurrent.{Await, Future}
 import scala.util.{Failure, Success}
 
 object FileUploading {
@@ -49,6 +49,7 @@ object FileUploading {
    * Message that is sent back to connection layer when file part successfully processed.
    */
   case object FileChunkUploaded
+
 }
 
 /**
@@ -57,10 +58,12 @@ object FileUploading {
  * @param dal database access.
  */
 class FileUploading(dal: Dal) extends Actor {
+
   import MediaTypes.`text/xml`
   import context._
 
   def bufferingFileHandler(fileId: UUID) = Props.create(classOf[FormalizedFileHandler], self, fileId, dal)
+
   def redirectFileHandler(fileId: UUID) = Props.create(classOf[InformalFileHandler], self, fileId)
 
   val fileHandlers = new scala.collection.mutable.HashMap[String, ActorRef]
@@ -102,6 +105,7 @@ object FileHandler {
   case class Init(totalChunks: Int)
 
   case class FlushTo(recipient: ActorRef)
+
 }
 
 /**
@@ -172,7 +176,9 @@ class FormalizedFileHandler(parent: ActorRef, fileId: UUID, implicit val dal: Da
         xml.write(baos)
         fileStore ! ByteString.fromArray(baos.toByteArray)
         fileStore ! Finish
+        //todo update db file#name
       }
+      case Failure(e: ParseDocumentException) => //todo save anyway as InformalDocument
     } map {
       case (xml, converted, recipient) => {
         val invoiceChangeNumber = xml match {
