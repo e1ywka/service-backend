@@ -82,12 +82,8 @@ class FileUploading(dal: Dal) extends Actor {
     val fileId: UUID = Await.result((actorOf(fileMetaProps) ? authFileChunk.fileChunk).mapTo[FileInfo].map(_.id), Duration.Inf)
 
     val actor: ActorRef = {
-      val contentType: Option[ContentType] = authFileChunk.fileChunk.file.entity match {
-        case HttpEntity.NonEmpty(c, _) => Some(c)
-        case _ => None
-      }
-      contentType match {
-        case Some(ContentType(`text/xml`, _)) => actorOf(bufferingFileHandler(fileId))
+      authFileChunk.fileChunk.file.entity match {
+        case HttpEntity.NonEmpty(ContentType(`text/xml`, _), _) => actorOf(bufferingFileHandler(fileId))
         case _ => actorOf(redirectFileHandler(fileId))
       }
     }
