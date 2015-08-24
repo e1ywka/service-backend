@@ -6,9 +6,11 @@ package ru.infotecs.edi.service
 import akka.actor.{ActorLogging, ActorRef}
 import akka.pattern.ask
 import akka.util.Timeout
+import jdk.nashorn.internal.runtime.regexp.joni.Config
 import ru.infotecs.edi.security.{InvalidJsonWebToken, JsonWebToken, ValidJsonWebToken}
 import ru.infotecs.edi.service.FileUploading._
 import spray.http._
+import spray.http.StatusCodes._
 import spray.httpx.SprayJsonSupport._
 import spray.httpx.marshalling._
 import spray.httpx.unmarshalling._
@@ -68,7 +70,7 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor with Actor
           HttpHeaders.`Access-Control-Allow-Methods`(HttpMethods.GET, HttpMethods.POST, HttpMethods.OPTIONS),
           HttpHeaders.`Access-Control-Allow-Headers`("Content-Type")
         ) {
-          complete(HttpResponse(200))
+          complete()
         }
       } ~
       post {
@@ -81,14 +83,14 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor with Actor
               detach() {
                 complete {
                   JsonWebToken(token.content) match {
-                    case InvalidJsonWebToken => HttpResponse(400, "Token is invalid")
+                    case InvalidJsonWebToken => HttpResponse(Unauthorized, "Token is invalid")
                     case ValidJsonWebToken(jws, jwt, _) =>
                       fileUploading ? AuthFileChunk(f, jwt) recover {
                         case e => log.error(e, "Error while handling file upload")
                       } map {
-                        case FileChunkUploaded => HttpResponse(204)
-                        case informal: InformalDocument => HttpResponse(200, marshalUnsafe(informal))
-                        case formal: FormalDocument => HttpResponse(200, marshalUnsafe(formal))
+                        case FileChunkUploaded => HttpResponse(NoContent)
+                        case informal: InformalDocument => HttpResponse(OK, marshalUnsafe(informal))
+                        case formal: FormalDocument => HttpResponse(OK, marshalUnsafe(formal))
                       }
                   }
                 }
