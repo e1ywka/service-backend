@@ -3,7 +3,7 @@
  */
 package ru.infotecs.edi.service
 
-import spray.json.DefaultJsonProtocol
+import spray.json.DefaultJsonProtocol._
 
 /**
  * Informal document.
@@ -37,7 +37,7 @@ case class FormalDocumentParams(primaryFormalNumber: String, primaryFormalDate: 
  */
 case class ParsingError(fileName: String, errorMessage: String)
 
-object ServiceJsonFormat extends DefaultJsonProtocol {
+object ServiceJsonFormat {
   implicit val unformalDocumentFormat = jsonFormat3(InformalDocument)
   implicit val formalDocumentParamsFormat = jsonFormat5(FormalDocumentParams)
   implicit val formalDocumentFormat = jsonFormat8(FormalDocument)

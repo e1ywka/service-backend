@@ -6,9 +6,9 @@ package ru.infotecs.edi.service
 import akka.actor.{ActorLogging, ActorRef}
 import akka.pattern.ask
 import akka.util.Timeout
-import jdk.nashorn.internal.runtime.regexp.joni.Config
 import ru.infotecs.edi.security.{InvalidJsonWebToken, JsonWebToken, ValidJsonWebToken}
 import ru.infotecs.edi.service.FileUploading._
+import spray.json.DefaultJsonProtocol._
 import spray.http._
 import spray.http.StatusCodes._
 import spray.httpx.SprayJsonSupport._
@@ -25,37 +25,6 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor with Actor
 
   implicit val timeout = Timeout(3 seconds)
 
-  /**
-   * Unmarshaller maps multipart request as FileChunk.
-   */
-  implicit val fileUploadUnmarshaller: Unmarshaller[FileChunk] =
-    Unmarshaller.delegate[MultipartFormData, FileChunk](ContentTypeRange(MediaTypes.`multipart/form-data`)) { data =>
-      val fileUpload = for {
-        chunksBodyPart <- data.get("chunks")
-        chunks <- Try {
-          chunksBodyPart.entity.asString.toInt
-        }.toOption
-        chunkBodyPart <- data.get("chunk")
-        chunk <- Try {
-          chunkBodyPart.entity.asString.toInt
-        }.toOption
-        file <- data.get("file")
-        fileNameBodyPart <- data.get("name")
-        fileSizeBodyPart <- data.get("size")
-        fileSize <- Try {
-          fileSizeBodyPart.entity.asString.toLong
-        }.toOption
-        fileHashBodyPart <- data.get("sha256hash")
-        meta <- Some(Meta(fileNameBodyPart.entity.asString,
-          fileSize,
-          fileHashBodyPart.entity.asString))
-      } yield FileUploading.FileChunk((chunk, chunks), file, meta)
-
-      fileUpload match {
-        case Some(f) => f
-      }
-    }
-
   val uploadServiceRoute = {
     (pathPrefix("upload") & pathEndOrSingleSlash) {
       get {
@@ -70,7 +39,7 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor with Actor
           HttpHeaders.`Access-Control-Allow-Methods`(HttpMethods.GET, HttpMethods.POST, HttpMethods.OPTIONS),
           HttpHeaders.`Access-Control-Allow-Headers`("Content-Type")
         ) {
-          complete()
+          complete(OK)
         }
       } ~
       post {
@@ -83,8 +52,8 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor with Actor
               detach() {
                 complete {
                   JsonWebToken(token.content) match {
-                    case InvalidJsonWebToken => HttpResponse(Unauthorized, "Token is invalid")
-                    case ValidJsonWebToken(jws, jwt, _) =>
+                    case InvalidJsonWebToken(_) => HttpResponse(Unauthorized, "Token is invalid")
+                    case ValidJsonWebToken(_, jws, jwt, _) =>
                       fileUploading ? AuthFileChunk(f, jwt) recover {
                         case e => log.error(e, "Error while handling file upload")
                       } map {

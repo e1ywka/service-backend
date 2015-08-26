@@ -15,15 +15,15 @@ class JsonWebTokenSpec extends FlatSpec with Matchers {
 
   "JsonWebToken" should "parse token w/ signature" in {
     JsonWebToken(tokenWithSignature) match {
-      case ValidJsonWebToken(jws, jwt, signature) => //pass
-      case InvalidJsonWebToken => fail("Cannot parse token")
+      case ValidJsonWebToken(_, jws, jwt, signature) => //pass
+      case InvalidJsonWebToken(_) => fail("Cannot parse token")
     }
   }
 
   "JsonWebToken" should "parse token w/o signature" in {
     JsonWebToken(tokenWithoutSignature) match {
-      case ValidJsonWebToken(jws, jwt, signature) => //pass
-      case InvalidJsonWebToken => fail("Cannot parse token")
+      case ValidJsonWebToken(_, jws, jwt, signature) => //pass
+      case InvalidJsonWebToken(_) => fail("Cannot parse token")
     }
   }
 }

@@ -6,22 +6,20 @@ package ru.infotecs.edi.security
 import java.io.IOException
 
 import net.iharder.Base64
-import ru.infotecs.edi.security.Alg.Alg
 
-import spray.json.DefaultJsonProtocol
+case class Jwt(iss: Option[String], sub: Option[String], aud: Option[Vector[String]], exp: Option[String], nbf: Option[String],
+               iat: Option[String], jti: Option[String], cty: Option[String], pid: String, cid: String)
 
-case class Jwt(iss: String, sub: Option[String], aud: Vector[String], exp: String, nbf: Option[String], iat: String,
-               jti: Option[String], cty: Option[String], pid: String, cid: String)
-
-case class Jws(alg: Alg, typ: String)
+case class Jws(alg: Alg.Alg, typ: String)
 
 object Alg extends Enumeration {
   type Alg = Value
   val none, HS256 = Value
 }
 
-object JsonWebToken extends DefaultJsonProtocol {
+object JsonWebToken {
   import spray.json._
+  import spray.json.DefaultJsonProtocol._
 
   implicit object JwsFormat extends RootJsonFormat[Jws] {
     override def read(json: JsValue): Jws = json.asJsObject.getFields("alg", "typ") match {
@@ -39,8 +37,8 @@ object JsonWebToken extends DefaultJsonProtocol {
 
   def apply(token: String): JsonWebToken = {
     parseToken(token) match {
-      case Right((jws_, jwt_, signature_)) => ValidJsonWebToken(jws_, jwt_, signature_)
-      case Left(_) => InvalidJsonWebToken
+      case Right((jws_, jwt_, signature_)) => ValidJsonWebToken(token, jws_, jwt_, signature_)
+      case Left(_) => InvalidJsonWebToken(token)
     }
   }
 
@@ -77,8 +75,9 @@ object JsonWebToken extends DefaultJsonProtocol {
   }
 }
 
-case class ValidJsonWebToken(jws: Jws, jwt: Jwt, signature: Option[String]) extends JsonWebToken(Some(jws), Some(jwt), signature)
+case class ValidJsonWebToken(override val original: String, jws: Jws, jwt: Jwt, signature: Option[String])
+  extends JsonWebToken(original, Some(jws), Some(jwt), signature)
 
-case object InvalidJsonWebToken extends JsonWebToken(None, None, None)
+case class InvalidJsonWebToken(override val original: String) extends JsonWebToken(original, None, None, None)
 
-abstract class JsonWebToken (jws: Option[Jws], jwt: Option[Jwt], signature: Option[String])
+abstract class JsonWebToken (val original: String, jws: Option[Jws], jwt: Option[Jwt], signature: Option[String])
