@@ -10,13 +10,14 @@ import akka.actor._
 import akka.pattern._
 import akka.util.ByteString
 import ru.infotecs.edi.db.Dal
-import ru.infotecs.edi.security.Jwt
+import ru.infotecs.edi.security.{JsonWebToken, Jwt}
 import ru.infotecs.edi.service.FileServerClient.Finish
 import ru.infotecs.edi.service.FileUploading.{FileChunkUploaded, Meta, FileChunk, AuthFileChunk}
 import ru.infotecs.edi.xml.documents.clientDocuments.{AbstractCorrectiveInvoice, AbstractInvoice}
 import ru.infotecs.edi.xml.documents.exceptions.ParseDocumentException
 
-import scala.concurrent.Future
+import scala.concurrent.duration._
+import scala.concurrent.{Await, Future}
 import scala.util.{Failure, Success}
 
 object FileHandler {
@@ -37,55 +38,71 @@ object FileHandler {
  *
  * param parent
  */
-abstract sealed class FileHandler(parent: ActorRef, fileId: UUID) extends Actor with Stash {
-  var nextChunk = 0
-  var totalChunks = 0
+abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Jwt, meta: Meta) extends Actor with Stash {
   implicit val ec = context.system.dispatcher
+  var nextChunk = 0
+  var stopOnNextReceiveTimeout = false
+  var fileIdFuture: Future[UUID] = FileMetaInfo.saveFileMeta(dal, originalJwt, meta) andThen {
+    case Failure(e) => throw e
+  }
+  context.setReceiveTimeout(1 minute)
 
   def handlingUpload(fileChunk: FileChunk): Unit
 
-  def uploadFinishedMessage(fileName: String, jwt: Jwt): Future[Any]
+  def uploadFinishedMessage(fileName: String, jwt: Jwt, fileId: UUID): Future[Any]
 
-  val handling: Receive = {
+  def handling(totalChunks: Int): Receive = {
     case f@AuthFileChunk(FileChunk((chunk, chunks), filePart, Meta(fileName, _, _)), jwt) => {
+      stopOnNextReceiveTimeout = false
       unstashAll()
       if (chunk == nextChunk) {
         nextChunk += 1
-        // выполнять парсинг файла
-        val recipient = sender()
-        handlingUpload(f.fileChunk)
-        if (nextChunk == totalChunks) {
-          uploadFinishedMessage(fileName, jwt) pipeTo recipient
-          context.stop(self)
-        } else {
-          recipient ! FileChunkUploaded
-        }
+        fileIdFuture flatMap { fileId =>
+          handlingUpload(f.fileChunk)
+          if (nextChunk == totalChunks) {
+            uploadFinishedMessage(fileName, jwt, fileId)
+          } else {
+            Future.successful(FileChunkUploaded)
+          }
+        } pipeTo sender()
       } else {
         stash()
       }
+    }
+    case ReceiveTimeout => if (stopOnNextReceiveTimeout) {
+      context stop self
+    } else {
+      stopOnNextReceiveTimeout = true
     }
   }
 
   val idle: Receive = {
     case FileHandler.Init(chunks) => {
-      totalChunks = chunks
-      context become handling
+      context setReceiveTimeout(15 minutes)
+      context become handling(chunks)
     }
     case chunk@FileChunk => sender ! Status.Failure(new Exception("FileHandler is in Idle state"))
+    case ReceiveTimeout => context stop self
   }
 
   def receive = idle
+
+  @throws[Exception](classOf[Exception])
+  override def preStart(): Unit = {
+    super.preStart()
+  }
 }
 
 /**
  * Кэширование загружаемого файла в памяти.
  */
-class FormalizedFileHandler(parent: ActorRef, fileId: UUID, implicit val dal: Dal) extends FileHandler(parent, fileId) {
+class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: Jwt, meta: Meta)
+  extends FileHandler(parent, dal, jwt, meta) {
 
   var fileBuilder = ByteString.empty
   val fileStore = context.actorOf(Props.create(classOf[DiskSave], "test"))
 
-  override def uploadFinishedMessage(fileName: String, jwt: Jwt): Future[Any] = {
+  override def uploadFinishedMessage(fileName: String, jwt: Jwt, fileId: UUID): Future[Any] = {
     val senderCompanyId = UUID.fromString(jwt.cid)
     val senderId = UUID.fromString(jwt.pid)
     (for {
@@ -140,11 +157,12 @@ class FormalizedFileHandler(parent: ActorRef, fileId: UUID, implicit val dal: Da
 /**
  * Передача частей файла в персистентное хранилище.
  */
-class InformalFileHandler(parent: ActorRef, fileId: UUID) extends FileHandler(parent, fileId) {
+class InformalFileHandler(parent: ActorRef, dal: Dal, jwt: Jwt, meta: Meta)
+  extends FileHandler(parent, dal, jwt, meta) {
 
   val fileServerConnector = context.actorOf(Props.create(classOf[DiskSave], "test"))
 
-  override def uploadFinishedMessage(fileName: String, jwt: Jwt): Future[Any] = {
+  override def uploadFinishedMessage(fileName: String, jwt: Jwt, fileId: UUID): Future[Any] = {
     context unwatch fileServerConnector
     fileServerConnector ! Finish
     Future.successful(InformalDocument(fileId.toString, fileName))
@@ -156,6 +174,7 @@ class InformalFileHandler(parent: ActorRef, fileId: UUID) extends FileHandler(pa
 
   @throws[Exception](classOf[Exception])
   override def preStart(): Unit = {
+    super.preStart()
     context watch fileServerConnector
   }
 }

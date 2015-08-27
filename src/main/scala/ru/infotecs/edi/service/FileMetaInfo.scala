@@ -10,29 +10,19 @@ import ru.infotecs.edi.db.{Dal, FileInfo}
 import ru.infotecs.edi.security.Jwt
 import ru.infotecs.edi.service.FileUploading.{FileChunk, Meta}
 
+import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
 
-class FileMetaInfo(dal: Dal, jwt: Jwt) extends Actor {
+object FileMetaInfo {
 
-  import dal._
-  import dal.driver.api._
-
-  implicit val ec = context.dispatcher
-
-  def receive: Receive = {
-    case FileChunk(_, _, Meta(name, size, sha256)) => {
-      val s = sender()
-      val fileInfo = FileInfo(UUID.randomUUID(), UUID.fromString(jwt.pid), name, size, sha256.getBytes)
-      withCircuitBreaker {
-        database.run(DBIO.seq(
-          fileInfos += fileInfo
-        ))
-      } onComplete {
-        case Success(_) => s ! fileInfo
-        case Failure(e) => s ! Status.Failure(e)
-      }
-
-    }
-
+  def saveFileMeta(dal: Dal, jwt: Jwt, meta: Meta)(implicit executionContext: ExecutionContext): Future[UUID] = {
+    import dal._
+    import dal.driver.api._
+    val fileInfo = FileInfo(UUID.randomUUID(), UUID.fromString(jwt.pid), meta.fileName, meta.size, meta.sha256Hash.getBytes)
+    withCircuitBreaker {
+      database.run(DBIO.seq(
+        fileInfos += fileInfo
+      ))
+    } map(_ => fileInfo.id)
   }
 }
