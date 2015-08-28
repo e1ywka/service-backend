@@ -86,11 +86,6 @@ abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Jwt, 
   }
 
   def receive = idle
-
-  @throws[Exception](classOf[Exception])
-  override def preStart(): Unit = {
-    super.preStart()
-  }
 }
 
 /**
@@ -118,7 +113,7 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: Jwt, m
         fileStore ! Finish
         //todo update db file#name
       }
-      case Failure(e: ParseDocumentException) => //todo save anyway as InformalDocument
+      case Failure(e) => throw e
     } map {
       case (xml, converted, recipient) => {
         val invoiceChangeNumber = xml match {
@@ -144,6 +139,8 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: Jwt, m
           )
         )
       }
+    } recover {
+      case e: ParseDocumentException => //todo save anyway as InformalDocument
     }
   }
 
