@@ -9,7 +9,7 @@ import java.util.UUID
 import akka.util.ByteString
 import org.scalatest.prop.TableDrivenPropertyChecks
 import org.scalatest.{BeforeAndAfter, BeforeAndAfterAll, FlatSpec, Matchers}
-import ru.infotecs.edi.db.{Person, Friendship, Company, H2Dal}
+import ru.infotecs.edi.db.{Company, Friendship, H2Dal, Person}
 import slick.driver.H2Driver.api._
 
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -21,7 +21,7 @@ class ParserSpec extends FlatSpec with Matchers
 with BeforeAndAfter with BeforeAndAfterAll with TableDrivenPropertyChecks {
 
   implicit val dal = H2Dal("h2mem1")
-  val ddl = dal.fileInfos.schema ++ dal.companies.schema ++ dal.friendships.schema
+  val ddl = dal.fileInfos.schema ++ dal.companies.schema ++ dal.friendships.schema ++ dal.persons.schema
 
   override protected def afterAll(): Unit = {
     dal.database.close()

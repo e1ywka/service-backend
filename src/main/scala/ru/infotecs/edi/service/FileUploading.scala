@@ -45,12 +45,6 @@ object FileUploading {
    * @param jwt authorization token.
    */
   case class AuthFileChunk(fileChunk: FileChunk, jwt: Jwt)
-
-  /**
-   * Message that is sent back to connection layer when file part successfully processed.
-   */
-  case object FileChunkUploaded
-
 }
 
 /**

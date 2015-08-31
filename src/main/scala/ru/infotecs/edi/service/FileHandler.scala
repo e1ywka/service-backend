@@ -10,11 +10,10 @@ import akka.actor._
 import akka.pattern._
 import akka.util.ByteString
 import ru.infotecs.edi.db.Dal
-import ru.infotecs.edi.security.{JsonWebToken, Jwt}
+import ru.infotecs.edi.security.Jwt
 import ru.infotecs.edi.service.FileServerClient.Finish
-import ru.infotecs.edi.service.FileUploading.{FileChunkUploaded, Meta, FileChunk, AuthFileChunk}
+import ru.infotecs.edi.service.FileUploading.{AuthFileChunk, FileChunk, Meta}
 import ru.infotecs.edi.xml.documents.clientDocuments.{AbstractCorrectiveInvoice, AbstractInvoice}
-import ru.infotecs.edi.xml.documents.exceptions.ParseDocumentException
 
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
@@ -38,37 +37,44 @@ object FileHandler {
  *
  * param parent
  */
-abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Jwt, meta: Meta) extends Actor with Stash {
+abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Jwt, meta: Meta) extends ActorLogging with Stash {
   implicit val ec = context.system.dispatcher
-  var nextChunk = 0
   var stopOnNextReceiveTimeout = false
-  var fileIdFuture: Future[UUID] = FileMetaInfo.saveFileMeta(dal, originalJwt, meta) andThen {
-    case Failure(e) => throw e
-  }
+  var fileIdFuture: Future[UUID] = FileMetaInfo.saveFileMeta(dal, originalJwt, meta)
   context.setReceiveTimeout(1 minute)
 
   def handlingUpload(fileChunk: FileChunk): Unit
 
-  def uploadFinishedMessage(fileName: String, jwt: Jwt, fileId: UUID): Future[Any]
+  def uploadFinishedMessage(fileName: String, jwt: Jwt, fileId: UUID): Future[ParsedDocument]
 
-  def handling(totalChunks: Int): Receive = {
-    case f@AuthFileChunk(FileChunk((chunk, chunks), filePart, Meta(fileName, _, _)), jwt) => {
+  def nextPartHandling(expectingChunk: Int, totalChunks: Int): Receive = {
+    case f@AuthFileChunk(FileChunk((chunk, _), filePart, Meta(fileName, _, _)), jwt) if chunk == expectingChunk => {
       stopOnNextReceiveTimeout = false
       unstashAll()
-      if (chunk == nextChunk) {
-        nextChunk += 1
-        fileIdFuture flatMap { fileId =>
-          handlingUpload(f.fileChunk)
-          if (nextChunk == totalChunks) {
-            uploadFinishedMessage(fileName, jwt, fileId)
-          } else {
-            Future.successful(FileChunkUploaded)
-          }
-        } pipeTo sender()
-      } else {
-        stash()
-      }
+      handlingUpload(f.fileChunk)
+      log.debug("File chunk uploaded")
+      sender ! UnparsedDocumentPart
+      context become handleNextChunk(expectingChunk + 1, totalChunks)
     }
+
+    case f: AuthFileChunk => stash(); log.debug("File chunk stashed")
+
+    case ReceiveTimeout => if (stopOnNextReceiveTimeout) {
+      context stop self
+    } else {
+      stopOnNextReceiveTimeout = true
+    }
+  }
+
+  def lastPartHandling(totalChunks: Int): Receive = {
+    case f@AuthFileChunk(FileChunk((chunk, _), filePart, Meta(fileName, _, _)), jwt) => {
+      handlingUpload(f.fileChunk)
+      log.debug("Upload finished")
+      fileIdFuture flatMap { fileId =>
+        uploadFinishedMessage(fileName, jwt, fileId)
+      } pipeTo sender
+    }
+
     case ReceiveTimeout => if (stopOnNextReceiveTimeout) {
       context stop self
     } else {
@@ -78,14 +84,28 @@ abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Jwt, 
 
   val idle: Receive = {
     case FileHandler.Init(chunks) => {
-      context setReceiveTimeout(15 minutes)
-      context become handling(chunks)
+      context setReceiveTimeout (15 minutes)
+      context become handleNextChunk(0, chunks)
     }
-    case chunk@FileChunk => sender ! Status.Failure(new Exception("FileHandler is in Idle state"))
+    case f@AuthFileChunk => stash()
     case ReceiveTimeout => context stop self
   }
 
   def receive = idle
+
+  def handleNextChunk(nextChunk: Int, totalChunks: Int): Receive = {
+    if (nextChunk == (totalChunks - 1)) {
+      lastPartHandling(totalChunks)
+    } else {
+      nextPartHandling(nextChunk, totalChunks)
+    }
+  }
+
+  @throws[Exception](classOf[Exception])
+  override def preStart(): Unit = {
+    super.preStart()
+    Await.ready(fileIdFuture, 2 seconds)
+  }
 }
 
 /**
@@ -97,7 +117,7 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: Jwt, m
   var fileBuilder = ByteString.empty
   val fileStore = context.actorOf(Props.create(classOf[DiskSave], "test"))
 
-  override def uploadFinishedMessage(fileName: String, jwt: Jwt, fileId: UUID): Future[Any] = {
+  override def uploadFinishedMessage(fileName: String, jwt: Jwt, fileId: UUID): Future[ParsedDocument] = {
     val senderCompanyId = UUID.fromString(jwt.cid)
     val senderId = UUID.fromString(jwt.pid)
     (for {
@@ -113,7 +133,9 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: Jwt, m
         fileStore ! Finish
         //todo update db file#name
       }
-      case Failure(e) => throw e
+      case Failure(e) => throw e //todo save anyway as InformalDocument
+    } andThen {
+      case _ => self ! PoisonPill
     } map {
       case (xml, converted, recipient) => {
         val invoiceChangeNumber = xml match {
@@ -132,15 +154,12 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: Jwt, m
           recipient.map(_.toString),
           FormalDocumentParams(xml.getPrimaryNumber,
             xml.getPrimaryDate.toInstant.getEpochSecond.toString,
-            //todo при реализации метода Parser.modify это поле будет всегда указываться
-            "",
+            xml.getExternalInteractionId.toString,
             invoiceChangeNumber,
             invoiceCorrectionNumber
           )
         )
       }
-    } recover {
-      case e: ParseDocumentException => //todo save anyway as InformalDocument
     }
   }
 
@@ -159,9 +178,10 @@ class InformalFileHandler(parent: ActorRef, dal: Dal, jwt: Jwt, meta: Meta)
 
   val fileServerConnector = context.actorOf(Props.create(classOf[DiskSave], "test"))
 
-  override def uploadFinishedMessage(fileName: String, jwt: Jwt, fileId: UUID): Future[Any] = {
+  override def uploadFinishedMessage(fileName: String, jwt: Jwt, fileId: UUID): Future[ParsedDocument] = {
     context unwatch fileServerConnector
     fileServerConnector ! Finish
+    self ! PoisonPill
     Future.successful(InformalDocument(fileId.toString, fileName))
   }
 

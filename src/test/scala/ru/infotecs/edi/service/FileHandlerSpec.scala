@@ -4,6 +4,7 @@
 package ru.infotecs.edi.service
 
 import java.io._
+import java.nio.file.{Files, Path, Paths}
 import java.util.UUID
 
 import akka.actor.{ActorSystem, Props}
@@ -19,7 +20,7 @@ import spray.http.{BodyPart, HttpEntity}
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
-import scala.io.Source
+import scala.util.Random
 
 class FileHandlerSpec(_system: ActorSystem) extends TestKit(_system)
 with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
@@ -57,7 +58,7 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
     TestKit.shutdownActorSystem(system)
   }
 
-  "BufferingFileHandler" must {
+  "FormalizedFileHandler" must {
 
     "become handling on Init message" in {
       val totalChunks = 2
@@ -65,7 +66,7 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
       val actorRef = system.actorOf(Props.create(classOf[FormalizedFileHandler], self, dal, jwt, f.fileChunk.meta))
       actorRef ! Init(totalChunks)
       actorRef ! f
-      expectMsg(FileChunkUploaded)
+      expectMsg(UnparsedDocumentPart)
     }
 
     "respond with document model" in {
@@ -79,24 +80,25 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
     }
 
     "respect ordering of chunks" in {
-      val totalChunks = 2
-      val file = new File(getClass.getResource("cf.xml").toURI)
+      val totalChunks = 10
+      val filePath = Paths.get(getClass.getResource("cf.xml").toURI)
 
-      val fileChunks = splitFile(file, totalChunks).zipWithIndex.map(part => {
+      val fileChunks = splitFile(filePath, totalChunks).zipWithIndex.map(part => {
         AuthFileChunk(FileChunk((part._2, totalChunks), BodyPart(HttpEntity(part._1)), Meta("cf.xml", part._1.length, "123")), jwt)
       }).toList
 
-      val actorRef = system.actorOf(Props.create(classOf[FormalizedFileHandler], self, dal, jwt, fileChunks(0).fileChunk.meta))
+      fileChunks.size should be(totalChunks)
+      val actorRef = system.actorOf(Props.create(classOf[FormalizedFileHandler], self, dal, jwt, fileChunks.head.fileChunk.meta))
       actorRef ! Init(totalChunks)
-      fileChunks.reverseIterator.foreach(f => actorRef ! f)
-      expectMsg(FileChunkUploaded)
+      Random.shuffle(fileChunks).foreach(f => actorRef ! f)
+      receiveN(9)
       expectMsgClass(classOf[FormalDocument])
     }
   }
 
-  def splitFile(file: File, splitInParts: Int): Iterator[Array[Byte]] = {
-    val content = Source.fromFile(file).map(_.toByte).toArray
-    val groups = (content.length.doubleValue / splitInParts).intValue
-    content.grouped(groups)
+  def splitFile(filePath: Path, splitInParts: Int): Iterator[Array[Byte]] = {
+    val content = Files.readAllBytes(filePath)
+    val groupSize = (content.length.doubleValue / splitInParts).intValue + 1
+    content.grouped(groupSize)
   }
 }

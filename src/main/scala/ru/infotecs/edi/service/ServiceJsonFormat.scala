@@ -5,13 +5,17 @@ package ru.infotecs.edi.service
 
 import spray.json.DefaultJsonProtocol._
 
+abstract sealed class ParsedDocument
+
+case object UnparsedDocumentPart extends ParsedDocument
+
 /**
  * Informal document.
  * @param fileId id in database.
  * @param fileName user specified file name.
  * @param isFormal is document formalized. must be false.
  */
-case class InformalDocument(fileId: String, fileName: String, isFormal: Boolean = false)
+case class InformalDocument(fileId: String, fileName: String, isFormal: Boolean = false) extends ParsedDocument
 
 /**
  * Formal document.
@@ -25,7 +29,7 @@ case class InformalDocument(fileId: String, fileName: String, isFormal: Boolean 
  */
 case class FormalDocument(fileId: String, fileName: String, formalType: String, isConverted: Boolean,
                           documentName: String, recipientId: Option[String], params: FormalDocumentParams,
-                          isFormal: Boolean = true)
+                          isFormal: Boolean = true) extends ParsedDocument
 
 case class FormalDocumentParams(primaryFormalNumber: String, primaryFormalDate: String, externalInteractionId: String,
                                 changeNumber: Option[String], invoiceCorrectionNumber: Option[String])

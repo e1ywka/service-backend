@@ -8,16 +8,14 @@ import akka.pattern.ask
 import akka.util.Timeout
 import ru.infotecs.edi.security.{InvalidJsonWebToken, JsonWebToken, ValidJsonWebToken}
 import ru.infotecs.edi.service.FileUploading._
-import spray.json.DefaultJsonProtocol._
-import spray.http._
 import spray.http.StatusCodes._
+import spray.http._
 import spray.httpx.SprayJsonSupport._
 import spray.httpx.marshalling._
 import spray.httpx.unmarshalling._
 import spray.routing.{ExceptionHandler, HttpServiceActor}
 
 import scala.concurrent.duration._
-import scala.util.Try
 
 class UploadService(fileUploading: ActorRef) extends HttpServiceActor with ActorLogging {
   import ServiceJsonFormat._
@@ -57,7 +55,7 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor with Actor
                       fileUploading ? AuthFileChunk(f, jwt) recover {
                         case e => log.error(e, "Error while handling file upload")
                       } map {
-                        case FileChunkUploaded => HttpResponse(NoContent)
+                        case UnparsedDocumentPart => HttpResponse(NoContent)
                         case informal: InformalDocument => HttpResponse(OK, marshalUnsafe(informal))
                         case formal: FormalDocument => HttpResponse(OK, marshalUnsafe(formal))
                       }
