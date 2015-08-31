@@ -3,22 +3,23 @@
  */
 package ru.infotecs.edi.service
 
-import java.io.File
+import java.io._
 import java.util.UUID
 
 import akka.actor.{ActorSystem, Props}
-import akka.testkit.{ImplicitSender, TestKit, TestProbe}
+import akka.testkit.{ImplicitSender, TestKit}
 import akka.util.{ByteString, Timeout}
 import org.scalatest._
-import ru.infotecs.edi.db.{Friendship, Person, Company, H2Dal}
-import ru.infotecs.edi.security.{Jwt, ValidJsonWebToken, JsonWebToken}
-import ru.infotecs.edi.service.FileHandler.{FlushTo, Init}
+import ru.infotecs.edi.db.{Company, Friendship, H2Dal, Person}
+import ru.infotecs.edi.security.Jwt
+import ru.infotecs.edi.service.FileHandler.Init
 import ru.infotecs.edi.service.FileUploading._
 import slick.driver.H2Driver.api._
-import spray.http.BodyPart
+import spray.http.{BodyPart, HttpEntity}
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
+import scala.io.Source
 
 class FileHandlerSpec(_system: ActorSystem) extends TestKit(_system)
 with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
@@ -77,21 +78,25 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
       expectMsgClass(classOf[FormalDocument])
     }
 
-    /*"respect ordering of chunks" in {
+    "respect ordering of chunks" in {
       val totalChunks = 2
-      val actorRef = system.actorOf(Props.create(classOf[FormalizedFileHandler], self))
+      val file = new File(getClass.getResource("cf.xml").toURI)
+
+      val fileChunks = splitFile(file, totalChunks).zipWithIndex.map(part => {
+        AuthFileChunk(FileChunk((part._2, totalChunks), BodyPart(HttpEntity(part._1)), Meta("cf.xml", part._1.length, "123")), jwt)
+      }).toList
+
+      val actorRef = system.actorOf(Props.create(classOf[FormalizedFileHandler], self, dal, jwt, fileChunks(0).fileChunk.meta))
       actorRef ! Init(totalChunks)
-      actorRef ! FileChunk((1, totalChunks), BodyPart("</entity>", "file"), Meta("fileName", 9, "123"))
-      actorRef ! FileChunk((0, totalChunks), BodyPart("<entity>", "file"), Meta("fileName", 8, "123"))
+      fileChunks.reverseIterator.foreach(f => actorRef ! f)
       expectMsg(FileChunkUploaded)
       expectMsgClass(classOf[FormalDocument])
-
-      val probe = TestProbe()
-      actorRef ! FlushTo(probe.ref)
-      probe.expectMsgPF() {
-        case b: ByteString => b.decodeString("UTF-8") should be(message)
-      }
-    }*/
+    }
   }
 
+  def splitFile(file: File, splitInParts: Int): Iterator[Array[Byte]] = {
+    val content = Source.fromFile(file).map(_.toByte).toArray
+    val groups = (content.length.doubleValue / splitInParts).intValue
+    content.grouped(groups)
+  }
 }
