@@ -39,7 +39,7 @@ case class FormalDocumentParams(primaryFormalNumber: String, primaryFormalDate: 
  * @param fileName user specified file name.
  * @param errorMessage message contains detailed error description.
  */
-case class ParsingError(fileName: String, errorMessage: String)
+case class ParsingError(fileName: String, errorMessage: String) extends ParsedDocument
 
 object ServiceJsonFormat {
   implicit val unformalDocumentFormat = jsonFormat3(InformalDocument)

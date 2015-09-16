@@ -28,7 +28,7 @@ object Parser {
   def read(b: ByteString): Future[ClientDocument] = Future.fromTry(Try {
     val xmlDocument = XMLDocumentReader.read(b.iterator.asInputStream)
     if (!xmlDocument.isInstanceOf[ClientDocument]) {
-      throw new Exception("Not a client document")
+      throw new ParserException(NotClientDocument)
     }
     xmlDocument.asInstanceOf[ClientDocument]
   })
@@ -46,11 +46,12 @@ object Parser {
     import dal.driver.api._
 
     def validateSenderCompany(): Future[Boolean] = {
-      for {
-        senderCompany <- dal.database.run(
-          dal.find(senderCompanyId).result.headOption
-        )
-      } yield senderCompany.isDefined && senderCompany.get.inn.equals(xmlDocument.getSender.getInn)
+      dal.database.run(
+        dal.find(senderCompanyId).result.headOption
+      ) flatMap {
+        case Some(sender) if sender.inn.equals(xmlDocument.getSender.getInn) => Future.successful(true)
+        case _ => Future.failed(new ParserException(InvalidSender))
+      }
     }
     def validateRecipientCompany(): Future[Option[UUID]] = {
       if (xmlDocument.getRecipient == null) {
@@ -60,14 +61,18 @@ object Parser {
           case r: LegalEntityInfo => dal.find(r.getInn, Some(r.getKpp))
           case r: EntrepreneurInfo => dal.find(r.getInn, None)
         }
-        dal.database.run(q.map(_.id).result.headOption)
+        dal.database.run(q.map(_.id).result.headOption) flatMap {
+          case Some(id) => checkFriendship(id).map(_ => Some(id))
+          case _ => Future.failed(new ParserException(InvalidRecipient))
+        }
       }
     }
 
-    def checkFriendship(recipientCompanyId: Option[UUID]): Future[Boolean] = {
-      recipientCompanyId match {
-        case Some(id) => dal.database.run(dal.companiesAreFriends(senderCompanyId, id).head)
-        case None => Future.successful(true)
+    def checkFriendship(recipientCompanyId: UUID): Future[Boolean] = {
+
+      dal.database.run(dal.companiesAreFriends(senderCompanyId, recipientCompanyId).headOption) flatMap {
+        case Some(true) => Future.successful(true)
+        case _ => Future.failed(new ParserException(NotFriend))
       }
     }
 
@@ -77,16 +82,7 @@ object Parser {
     for {
       isSenderValid <- senderValidation
       recipient <- recipientValidation
-      areFriends <- checkFriendship(recipient)
-    } yield {
-      if (!isSenderValid) {
-        throw new Exception
-      }
-      if (!areFriends) {
-        throw new Exception
-      }
-      (recipient, xmlDocument)
-    }
+    } yield (recipient, xmlDocument)
   }
 
   def modify(fileId: UUID,
@@ -129,4 +125,27 @@ object Parser {
       xmlDocument
     }
   }
+
+  case class ParserException(private val error: ParserError) extends Exception {
+
+    lazy val errorMessage = error match {
+      case InvalidSender => "parser.invalidSender"
+      case InvalidRecipient => "parser.invalidRecipient"
+      case NotFriend => "parser.notFirend"
+      case NotClientDocument => "parser.notClientDocument"
+    }
+
+    //todo error message localization?
+    def getErrorMessage: String = errorMessage
+  }
+
+  sealed trait ParserError
+
+  case object InvalidSender extends ParserError
+
+  case object InvalidRecipient extends ParserError
+
+  case object NotFriend extends ParserError
+
+  case object NotClientDocument extends ParserError
 }

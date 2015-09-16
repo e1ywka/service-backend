@@ -13,7 +13,9 @@ import ru.infotecs.edi.db.Dal
 import ru.infotecs.edi.security.Jwt
 import ru.infotecs.edi.service.FileServerClient.Finish
 import ru.infotecs.edi.service.FileUploading.{AuthFileChunk, FileChunk, Meta}
+import ru.infotecs.edi.service.Parser.ParserException
 import ru.infotecs.edi.xml.documents.clientDocuments.{AbstractCorrectiveInvoice, AbstractInvoice}
+import ru.infotecs.edi.xml.documents.exceptions.XMLDocumentException
 
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
@@ -133,7 +135,11 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: Jwt, m
         fileStore ! Finish
         //todo update db file#name
       }
-      case Failure(e) => throw e //todo save anyway as InformalDocument
+      case Failure(e: XMLDocumentException) => {
+        fileStore ! fileBuilder
+        fileStore ! Finish
+      }
+      case Failure(e) => throw e
     } andThen {
       case _ => self ! PoisonPill
     } map {
@@ -160,6 +166,9 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: Jwt, m
           )
         )
       }
+    } recover {
+      case e: XMLDocumentException => InformalDocument(fileId.toString, fileName)
+      case e: ParserException => ParsingError(fileName, e.getErrorMessage)
     }
   }
 
