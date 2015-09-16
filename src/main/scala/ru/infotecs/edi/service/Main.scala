@@ -18,7 +18,7 @@ object Main extends App {
   val fileUploading = system.actorOf(Props.create(classOf[FileUploading], dal))
   val handler = system.actorOf(Props.create(classOf[UploadService], fileUploading))
 
-  IO(Http) ! Http.Bind(handler, interface = "10.0.9.35", port = 10000)
+  IO(Http) ! Http.Bind(handler, interface = "localhost", port = 10000)
 
   sys.addShutdownHook {
     system.shutdown()

@@ -57,10 +57,6 @@ class FileUploading(dal: Dal) extends Actor {
   import MediaTypes.`text/xml`
   import context._
 
-  val bufferingFileHandler = Props.create(classOf[FormalizedFileHandler], self, dal)
-
-  val redirectFileHandler = Props.create(classOf[InformalFileHandler], self, dal)
-
   val fileHandlers = new scala.collection.mutable.HashMap[String, ActorRef]
 
   implicit val timeout: Timeout = 3 seconds
@@ -84,9 +80,9 @@ class FileUploading(dal: Dal) extends Actor {
     val actor: ActorRef = {
       authFileChunk.fileChunk.file.entity match {
         case HttpEntity.NonEmpty(ContentType(`text/xml`, _), _) =>
-          actorOf(bufferingFileHandler)
+          actorOf(Props.create(classOf[FormalizedFileHandler], self, dal, authFileChunk.jwt, authFileChunk.fileChunk.meta))
         case _ =>
-          actorOf(redirectFileHandler)
+          actorOf(Props.create(classOf[InformalFileHandler], self, dal, authFileChunk.jwt, authFileChunk.fileChunk.meta))
       }
     }
     watch(actor)
