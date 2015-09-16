@@ -80,9 +80,9 @@ class FileUploading(dal: Dal) extends Actor {
     val actor: ActorRef = {
       authFileChunk.fileChunk.file.entity match {
         case HttpEntity.NonEmpty(ContentType(`text/xml`, _), _) =>
-          actorOf(Props.create(classOf[FormalizedFileHandler], self, dal, authFileChunk.jwt, authFileChunk.fileChunk.meta))
+          actorOf(Props(classOf[FormalizedFileHandler], self, dal, authFileChunk.jwt, authFileChunk.fileChunk.meta))
         case _ =>
-          actorOf(Props.create(classOf[InformalFileHandler], self, dal, authFileChunk.jwt, authFileChunk.fileChunk.meta))
+          actorOf(Props(classOf[InformalFileHandler], self, dal, authFileChunk.jwt, authFileChunk.fileChunk.meta))
       }
     }
     watch(actor)

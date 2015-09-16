@@ -63,7 +63,7 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
     "become handling on Init message" in {
       val totalChunks = 2
       val f = AuthFileChunk(FileChunk((0, totalChunks), BodyPart(message, "file"), Meta("fileName", 17, "123")), jwt)
-      val actorRef = system.actorOf(Props.create(classOf[FormalizedFileHandler], self, dal, jwt, f.fileChunk.meta))
+      val actorRef = system.actorOf(Props(classOf[FormalizedFileHandler], self, dal, jwt, f.fileChunk.meta))
       actorRef ! Init(totalChunks)
       actorRef ! f
       expectMsg(UnparsedDocumentPart)
@@ -73,7 +73,7 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
       val totalChunks = 1
       val file = new File(getClass.getResource("cf.xml").toURI)
       val f = AuthFileChunk(FileChunk((0, totalChunks), BodyPart(file, "cf.xml"), Meta("cf.xml", 1000, "123")), jwt)
-      val actorRef = system.actorOf(Props.create(classOf[FormalizedFileHandler], self, dal, jwt, f.fileChunk.meta))
+      val actorRef = system.actorOf(Props(classOf[FormalizedFileHandler], self, dal, jwt, f.fileChunk.meta))
       actorRef ! Init(totalChunks)
       actorRef ! f
       expectMsgClass(classOf[FormalDocument])
@@ -88,7 +88,7 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
       }).toList
 
       fileChunks.size should be(totalChunks)
-      val actorRef = system.actorOf(Props.create(classOf[FormalizedFileHandler], self, dal, jwt, fileChunks.head.fileChunk.meta))
+      val actorRef = system.actorOf(Props(classOf[FormalizedFileHandler], self, dal, jwt, fileChunks.head.fileChunk.meta))
       actorRef ! Init(totalChunks)
       Random.shuffle(fileChunks).foreach(f => actorRef ! f)
       receiveN(9)

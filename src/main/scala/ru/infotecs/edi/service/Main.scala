@@ -15,8 +15,8 @@ object Main extends App {
 
   val dal = PostgresDal("jdbc:postgresql://localhost:5433/edi?stringtype=unspecified&user=postgres&password=postgres")
 
-  val fileUploading = system.actorOf(Props.create(classOf[FileUploading], dal))
-  val handler = system.actorOf(Props.create(classOf[UploadService], fileUploading))
+  val fileUploading = system.actorOf(Props(classOf[FileUploading], dal))
+  val handler = system.actorOf(Props(classOf[UploadService], fileUploading))
 
   IO(Http) ! Http.Bind(handler, interface = "localhost", port = 10000)
 

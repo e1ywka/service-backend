@@ -117,7 +117,7 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: Jwt, m
   extends FileHandler(parent, dal, jwt, meta) {
 
   var fileBuilder = ByteString.empty
-  val fileStore = context.actorOf(Props.create(classOf[DiskSave], "test"))
+  val fileStore = context.actorOf(Props(classOf[DiskSave], "test"))
 
   override def uploadFinishedMessage(fileName: String, jwt: Jwt, fileId: UUID): Future[ParsedDocument] = {
     val senderCompanyId = UUID.fromString(jwt.cid)
@@ -185,7 +185,7 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: Jwt, m
 class InformalFileHandler(parent: ActorRef, dal: Dal, jwt: Jwt, meta: Meta)
   extends FileHandler(parent, dal, jwt, meta) {
 
-  val fileServerConnector = context.actorOf(Props.create(classOf[DiskSave], "test"))
+  val fileServerConnector = context.actorOf(Props(classOf[DiskSave], "test"))
 
   override def uploadFinishedMessage(fileName: String, jwt: Jwt, fileId: UUID): Future[ParsedDocument] = {
     context unwatch fileServerConnector
