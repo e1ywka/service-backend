@@ -6,6 +6,7 @@ package ru.infotecs.edi.service
 import java.util.UUID
 
 import akka.util.ByteString
+import ru.infotecs.edi.SettingsImpl
 import ru.infotecs.edi.UUIDUtils.noDashString
 import ru.infotecs.edi.db.Dal
 import ru.infotecs.edi.xml.documents.XMLDocumentReader
@@ -20,10 +21,6 @@ import scala.util.Try
 object Parser {
 
   import scala.concurrent.ExecutionContext.Implicits.global
-
-  val OperatorFnsId: String = "2АН"
-  val OperatorCompanyName = ""
-  val OperatorCompanyInn = ""
 
   def read(b: ByteString): Future[ClientDocument] = Future.fromTry(Try {
     val xmlDocument = XMLDocumentReader.read(b.iterator.asInputStream)
@@ -89,7 +86,7 @@ object Parser {
              senderPersonId: UUID,
              senderCompanyId: UUID,
              recipientCompanyId: Option[UUID],
-             xmlDocument: ClientDocument)(implicit dal: Dal): Future[ClientDocument] = {
+             xmlDocument: ClientDocument)(implicit dal: Dal, settings: SettingsImpl): Future[ClientDocument] = {
     import dal.driver.api._
 
     val signerFuture = dal.database.run(dal.findPersonById(senderPersonId).result.head)
@@ -99,11 +96,11 @@ object Parser {
       senderCompany <- senderCompanyFuture
     } yield {
       xmlDocument.setDocumentFileId(fileId)
-      xmlDocument.setSenderId(OperatorFnsId + noDashString(senderCompanyId))
+      xmlDocument.setSenderId(settings.OperatorFnsId + noDashString(senderCompanyId))
       if (recipientCompanyId.isDefined) {
-        xmlDocument.setRecipientId(OperatorFnsId + noDashString(recipientCompanyId.get))
+        xmlDocument.setRecipientId(settings.OperatorFnsId + noDashString(recipientCompanyId.get))
       }
-      xmlDocument.setOperatorInfo(OperatorFnsId, OperatorCompanyName, OperatorCompanyInn)
+      xmlDocument.setOperatorInfo(settings.OperatorFnsId, settings.OperatorCompanyName, settings.OperatorCompanyInn)
 
       val personName = new PersonName(signer.lastName, signer.firstName, signer.middleName.orNull)
       val signatory: Signatory = {

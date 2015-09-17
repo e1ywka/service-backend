@@ -11,14 +11,8 @@ import slick.driver.PostgresDriver.api._
 object PostgresDal {
   implicit val scheduler: Scheduler = implicitly[Scheduler]
 
-  def apply(jdbcUrl: String): PostgresDal = {
+  def apply(): PostgresDal = {
     val cpds = new ComboPooledDataSource()
-    cpds.setDriverClass( "org.postgresql.Driver" )
-    cpds.setJdbcUrl(jdbcUrl)
-
-    cpds.setMinPoolSize(5)
-    cpds.setAcquireIncrement(5)
-    cpds.setMaxPoolSize(20)
     new PostgresDal(Database.forDataSource(cpds))
   }
 }

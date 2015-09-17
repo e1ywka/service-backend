@@ -9,6 +9,7 @@ import java.util.UUID
 import akka.actor._
 import akka.pattern._
 import akka.util.ByteString
+import ru.infotecs.edi.Settings
 import ru.infotecs.edi.db.Dal
 import ru.infotecs.edi.security.Jwt
 import ru.infotecs.edi.service.FileServerClient.Finish
@@ -116,6 +117,7 @@ abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Jwt, 
 class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: Jwt, meta: Meta)
   extends FileHandler(parent, dal, jwt, meta) {
 
+  implicit val config = Settings(context.system)
   var fileBuilder = ByteString.empty
   val fileStore = context.actorOf(Props(classOf[DiskSave], "test"))
 
