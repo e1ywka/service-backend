@@ -51,8 +51,8 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor with Actor
                 complete {
                   JsonWebToken(token.content) match {
                     case InvalidJsonWebToken(_) => HttpResponse(Unauthorized, "Token is invalid")
-                    case ValidJsonWebToken(_, jws, jwt, _) =>
-                      fileUploading ? AuthFileChunk(f, jwt) recover {
+                    case t: ValidJsonWebToken =>
+                      fileUploading ? AuthFileChunk(f, t) recover {
                         case e => log.error(e, "Error while handling file upload")
                       } map {
                         case UnparsedDocumentPart => HttpResponse(NoContent)

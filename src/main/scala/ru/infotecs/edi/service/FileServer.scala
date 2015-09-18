@@ -8,6 +8,7 @@ import akka.io.IO
 import akka.pattern._
 import akka.routing.RoundRobinPool
 import akka.util.{ByteString, Timeout}
+import ru.infotecs.edi.Settings
 import ru.infotecs.edi.service.FileServerClient.Finish
 import spray.can.Http
 import spray.http._
@@ -25,21 +26,16 @@ import scala.util.{Failure, Success}
 // TODO implement client as broker to distribute sending in several tcp connections and/or several nodes
 object FileServerClient {
   case object Finish
-
-  val supervisor = OneForOneStrategy(maxNrOfRetries = 3, withinTimeRange = 5 seconds) {
-    case e => SupervisorStrategy.restart
-  }
-  def router(host: String, port: Int) =
-    RoundRobinPool(5, supervisorStrategy = supervisor)
-      .props(Props(classOf[FileServerClient], host, port))
 }
 
 case class FileServerClientException(message: Option[String])
   extends Exception(message.getOrElse("Unexpected exception"))
 
-class FileServerClient(io: ActorRef, host: String, port: Int) extends Actor with Stash {
+class FileServerClient(io: ActorRef) extends ActorLogging with Stash {
   import context._
+  import spray.httpx.RequestBuilding.Post
 
+  val settings = Settings(system)
   implicit val timeout = Timeout(3 seconds)
 
   val circuitBreaker = new CircuitBreaker(system.scheduler, 3, 10 seconds, 1 minute)
@@ -47,9 +43,10 @@ class FileServerClient(io: ActorRef, host: String, port: Int) extends Actor with
   def connected(connector: ActorRef): Receive = {
     case 'Status => sender() ! 'Connected
     case message: FileServerMessage => {
+      log.debug("send message")
       val recipient = sender()
       circuitBreaker.withCircuitBreaker {
-        connector ? HttpRequest(POST, Uri("/upload"), entity = marshalUnsafe(message))
+        connector ? Post(settings.FileServerUploadUrl, message)
       } pipeTo recipient
     }
 
@@ -67,11 +64,12 @@ class FileServerClient(io: ActorRef, host: String, port: Int) extends Actor with
   def connecting: Receive = {
     case 'Status => sender() ! 'Connecting
     case Http.HostConnectorInfo(hostConnector, _) => {
+      log.debug("connected")
       watch(hostConnector)
       become(connected(hostConnector))
       unstashAll()
     }
-    case _: FileServerMessage => stash()
+    case _: FileServerMessage => stash(); log.debug("stash message")
     case Http.CommandFailed(_) => stop(self)
   }
 
@@ -79,7 +77,7 @@ class FileServerClient(io: ActorRef, host: String, port: Int) extends Actor with
     case 'Status => sender() ! 'Closed
     case _: FileServerMessage => {
       stash()
-      io ! Http.HostConnectorSetup(host = host, port = port)
+      io ! Http.HostConnectorSetup(host = settings.FileServerHost, port = settings.FileServerPort)
       become(connecting)
     }
     case Finish => stop(self)
@@ -89,7 +87,7 @@ class FileServerClient(io: ActorRef, host: String, port: Int) extends Actor with
 
   @throws[Exception](classOf[Exception])
   override def preStart(): Unit = {
-    io ! Http.HostConnectorSetup(host = host, port = port)
+    io ! Http.HostConnectorSetup(host = settings.FileServerHost, port = settings.FileServerPort)
     become(connecting)
   }
 }

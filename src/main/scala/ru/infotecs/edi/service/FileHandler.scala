@@ -11,7 +11,7 @@ import akka.pattern._
 import akka.util.ByteString
 import ru.infotecs.edi.Settings
 import ru.infotecs.edi.db.Dal
-import ru.infotecs.edi.security.Jwt
+import ru.infotecs.edi.security.{ValidJsonWebToken, JsonWebToken, Jwt}
 import ru.infotecs.edi.service.FileServerClient.Finish
 import ru.infotecs.edi.service.FileUploading.{AuthFileChunk, FileChunk, Meta}
 import ru.infotecs.edi.service.Parser.ParserException
@@ -40,15 +40,15 @@ object FileHandler {
  *
  * param parent
  */
-abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Jwt, meta: Meta) extends ActorLogging with Stash {
+abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: ValidJsonWebToken, meta: Meta) extends ActorLogging with Stash {
   implicit val ec = context.system.dispatcher
   var stopOnNextReceiveTimeout = false
-  var fileIdFuture: Future[UUID] = FileMetaInfo.saveFileMeta(dal, originalJwt, meta)
+  var fileIdFuture: Future[UUID] = FileMetaInfo.saveFileMeta(dal, originalJwt.jwt, meta)
   context.setReceiveTimeout(1 minute)
 
   def handlingUpload(fileChunk: FileChunk): Unit
 
-  def uploadFinishedMessage(fileName: String, jwt: Jwt, fileId: UUID): Future[ParsedDocument]
+  def uploadFinishedMessage(fileName: String, fileId: UUID): Future[ParsedDocument]
 
   def nextPartHandling(expectingChunk: Int, totalChunks: Int): Receive = {
     case f@AuthFileChunk(FileChunk((chunk, _), filePart, Meta(fileName, _, _)), jwt) if chunk == expectingChunk => {
@@ -74,7 +74,7 @@ abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Jwt, 
       handlingUpload(f.fileChunk)
       log.debug("Upload finished")
       fileIdFuture flatMap { fileId =>
-        uploadFinishedMessage(fileName, jwt, fileId)
+        uploadFinishedMessage(fileName, fileId)
       } pipeTo sender
     }
 
@@ -114,16 +114,16 @@ abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Jwt, 
 /**
  * Кэширование загружаемого файла в памяти.
  */
-class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: Jwt, meta: Meta)
+class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: ValidJsonWebToken, meta: Meta)
   extends FileHandler(parent, dal, jwt, meta) {
 
   implicit val config = Settings(context.system)
   var fileBuilder = ByteString.empty
-  val fileStore = context.actorOf(Props(classOf[DiskSave], "test"))
+  val fileStore = context.actorSelection("/user/fileServerClient")
 
-  override def uploadFinishedMessage(fileName: String, jwt: Jwt, fileId: UUID): Future[ParsedDocument] = {
-    val senderCompanyId = UUID.fromString(jwt.cid)
-    val senderId = UUID.fromString(jwt.pid)
+  override def uploadFinishedMessage(fileName: String, fileId: UUID): Future[ParsedDocument] = {
+    val senderCompanyId = UUID.fromString(jwt.jwt.cid)
+    val senderId = UUID.fromString(jwt.jwt.pid)
     (for {
       xml <- Parser.read(fileBuilder)
       (converted, xml) <- Parser.convert(xml)
@@ -184,26 +184,29 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: Jwt, m
 /**
  * Передача частей файла в персистентное хранилище.
  */
-class InformalFileHandler(parent: ActorRef, dal: Dal, jwt: Jwt, meta: Meta)
+class InformalFileHandler(parent: ActorRef, dal: Dal, jwt: ValidJsonWebToken, meta: Meta)
   extends FileHandler(parent, dal, jwt, meta) {
 
-  val fileServerConnector = context.actorOf(Props(classOf[DiskSave], "test"))
+  val fileServerConnector = context.actorSelection("/user/fileServerClient")
+  val offset: Int = 0
 
-  override def uploadFinishedMessage(fileName: String, jwt: Jwt, fileId: UUID): Future[ParsedDocument] = {
-    context unwatch fileServerConnector
-    fileServerConnector ! Finish
+  override def uploadFinishedMessage(fileName: String, fileId: UUID): Future[ParsedDocument] = {
+    //context unwatch fileServerConnector
+    //fileServerConnector ! Finish
     self ! PoisonPill
     Future.successful(InformalDocument(fileId.toString, fileName))
   }
 
   def handlingUpload(fileChunk: FileChunk) = {
-    fileServerConnector ! fileChunk.file.entity.data.toByteString
+    fileIdFuture.foreach(fileId => {
+      fileServerConnector ! FileServerMessage(fileChunk.file.entity.data.toByteString, offset, fileChunk.meta.size, jwt, fileId)
+    })
   }
 
   @throws[Exception](classOf[Exception])
   override def preStart(): Unit = {
     super.preStart()
-    context watch fileServerConnector
+    //context watch fileServerConnector
   }
 }
 

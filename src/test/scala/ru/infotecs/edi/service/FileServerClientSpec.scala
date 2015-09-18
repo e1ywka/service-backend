@@ -11,17 +11,20 @@ import akka.io.Tcp
 import akka.pattern.CircuitBreakerOpenException
 import akka.testkit._
 import akka.util.ByteString
-import org.scalatest.{WordSpecLike, BeforeAndAfterAll}
+import org.scalatest.{Matchers, WordSpecLike, BeforeAndAfterAll}
+import ru.infotecs.edi.Settings
 import ru.infotecs.edi.security.{JsonWebToken}
 import spray.can.Http
-import spray.http.{HttpEntity, HttpResponse, HttpRequest}
+import spray.http.HttpHeaders.Authorization
+import spray.http.{GenericHttpCredentials, HttpEntity, HttpResponse, HttpRequest}
 
 import scala.concurrent.duration._
 
 class FileServerClientSpec(_system: ActorSystem) extends TestKit(_system)
-with ImplicitSender with WordSpecLike with BeforeAndAfterAll {
+with ImplicitSender with WordSpecLike with BeforeAndAfterAll with Matchers {
 
   def this() = this(ActorSystem("FileServerClientSpec"))
+  val settings = Settings(_system)
 
   val jwt = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsInBpZCI6IiIsImNpZCI6IiJ9."
 
@@ -31,13 +34,13 @@ with ImplicitSender with WordSpecLike with BeforeAndAfterAll {
 
   "FileServerClient" should {
     "establish connection on preStart" in {
-      val fileServerClient = system.actorOf(Props(classOf[FileServerClient], self, "host", 0))
-      expectMsg(Http.HostConnectorSetup("host", 0))
+      val fileServerClient = system.actorOf(Props(classOf[FileServerClient], self))
+      expectMsg(Http.HostConnectorSetup(settings.FileServerHost, settings.FileServerPort))
     }
 
     "become connected after receiving Http.HostConnectorInfo" in {
-      val fileServerClient = system.actorOf(Props(classOf[FileServerClient], self, "host", 0))
-      val setup = expectMsg(Http.HostConnectorSetup("host", 0))
+      val fileServerClient = system.actorOf(Props(classOf[FileServerClient], self))
+      val setup = expectMsg(Http.HostConnectorSetup(settings.FileServerHost, settings.FileServerPort))
       fileServerClient ! 'Status
       expectMsg('Connecting)
       fileServerClient ! Http.HostConnectorInfo(self, setup)
@@ -46,9 +49,9 @@ with ImplicitSender with WordSpecLike with BeforeAndAfterAll {
     }
 
     "stop itself when unable to connect" in {
-      val fileServerClient = system.actorOf(Props(classOf[FileServerClient], self, "host", 0))
+      val fileServerClient = system.actorOf(Props(classOf[FileServerClient], self))
       watch(fileServerClient)
-      val setup = expectMsg(Http.HostConnectorSetup("host", 0))
+      val setup = expectMsg(Http.HostConnectorSetup(settings.FileServerHost, settings.FileServerPort))
       fileServerClient ! 'Status
       expectMsg('Connecting)
       fileServerClient ! Http.CommandFailed(Tcp.Abort)
@@ -56,19 +59,20 @@ with ImplicitSender with WordSpecLike with BeforeAndAfterAll {
     }
 
     "stash FileServerMessageS when connecting" in {
-      val fileServerClient = system.actorOf(Props(classOf[FileServerClient], self, "host", 0))
-      val setup = expectMsg(Http.HostConnectorSetup("host", 0))
+      val fileServerClient = system.actorOf(Props(classOf[FileServerClient], self))
+      val setup = expectMsg(Http.HostConnectorSetup(settings.FileServerHost, settings.FileServerPort))
 
       fileServerClient ! FileServerMessage(ByteString.empty, 0, 1, JsonWebToken(jwt), UUID.randomUUID())
       fileServerClient ! Http.HostConnectorInfo(self, setup)
       // stashed message is sent
-      expectMsgClass(classOf[HttpRequest])
+      val request = expectMsgClass(classOf[HttpRequest])
+      request.headers should not be(empty)
     }
 
     "forward response to sender" in {
       val io = TestProbe()
-      val fileServerClient = system.actorOf(Props(classOf[FileServerClient], io.ref, "host", 0))
-      val setup = io.expectMsg(Http.HostConnectorSetup("host", 0))
+      val fileServerClient = system.actorOf(Props(classOf[FileServerClient], io.ref))
+      val setup = io.expectMsg(Http.HostConnectorSetup(settings.FileServerHost, settings.FileServerPort))
 
       io.reply(Http.HostConnectorInfo(io.ref, setup))
 
@@ -82,8 +86,8 @@ with ImplicitSender with WordSpecLike with BeforeAndAfterAll {
 
     "open circuit breaker on failures" in {
       val io = TestProbe()
-      val fileServerClient = system.actorOf(Props(classOf[FileServerClient], io.ref, "host", 0))
-      val setup = io.expectMsg(Http.HostConnectorSetup("host", 0))
+      val fileServerClient = system.actorOf(Props(classOf[FileServerClient], io.ref))
+      val setup = io.expectMsg(Http.HostConnectorSetup(settings.FileServerHost, settings.FileServerPort))
       io.reply(Http.HostConnectorInfo(io.ref, setup))
 
       val client = TestProbe()

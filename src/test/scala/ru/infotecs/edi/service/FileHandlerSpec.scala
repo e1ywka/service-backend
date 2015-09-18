@@ -12,7 +12,7 @@ import akka.testkit.{ImplicitSender, TestKit}
 import akka.util.{ByteString, Timeout}
 import org.scalatest._
 import ru.infotecs.edi.db.{Company, Friendship, H2Dal, Person}
-import ru.infotecs.edi.security.Jwt
+import ru.infotecs.edi.security._
 import ru.infotecs.edi.service.FileHandler.Init
 import ru.infotecs.edi.service.FileUploading._
 import slick.driver.H2Driver.api._
@@ -35,7 +35,7 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
   val message = "<entity></entity>"
   val messageStream = ByteString.fromString(message)
 
-  var jwt: Jwt = _
+  var jwt: JsonWebToken = _
   var personId: UUID = _
   var companyId: UUID = _
 
@@ -51,7 +51,10 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
       dal.persons += Person(personId, "Фамилия", "Имя", Some("Отчество"))
     ))
     Await.ready(prepairDb, Duration.Inf)
-    jwt = Jwt(None, None, None, None, None, None, None, None, personId.toString, companyId.toString)
+    jwt = ValidJsonWebToken("",
+      Jws(Alg.none, ""),
+      Jwt(None, None, None, None, None, None, None, None, personId.toString, companyId.toString),
+      None)
   }
 
   override def afterAll() {

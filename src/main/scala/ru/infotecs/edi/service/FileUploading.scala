@@ -8,7 +8,7 @@ import akka.actor._
 import akka.pattern.{ask, pipe}
 import akka.util.{ByteString, Timeout}
 import ru.infotecs.edi.db.{Dal, FileInfo}
-import ru.infotecs.edi.security.Jwt
+import ru.infotecs.edi.security.{JsonWebToken, Jwt}
 import ru.infotecs.edi.service.FileServerClient.Finish
 import ru.infotecs.edi.service.FileUploading._
 import ru.infotecs.edi.xml.documents.clientDocuments.{AbstractCorrectiveInvoice, AbstractInvoice}
@@ -44,7 +44,7 @@ object FileUploading {
    * @param fileChunk file chunk.
    * @param jwt authorization token.
    */
-  case class AuthFileChunk(fileChunk: FileChunk, jwt: Jwt)
+  case class AuthFileChunk(fileChunk: FileChunk, jwt: JsonWebToken)
 }
 
 /**
