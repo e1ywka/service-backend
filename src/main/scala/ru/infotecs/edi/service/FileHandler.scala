@@ -8,11 +8,10 @@ import java.util.UUID
 
 import akka.actor._
 import akka.pattern._
-import akka.util.ByteString
+import akka.util.{ByteString, Timeout}
 import ru.infotecs.edi.Settings
 import ru.infotecs.edi.db.Dal
-import ru.infotecs.edi.security.{ValidJsonWebToken, JsonWebToken, Jwt}
-import ru.infotecs.edi.service.FileServerClient.Finish
+import ru.infotecs.edi.security.ValidJsonWebToken
 import ru.infotecs.edi.service.FileUploading.{AuthFileChunk, FileChunk, Meta}
 import ru.infotecs.edi.service.Parser.ParserException
 import ru.infotecs.edi.xml.documents.clientDocuments.{AbstractCorrectiveInvoice, AbstractInvoice}
@@ -20,7 +19,6 @@ import ru.infotecs.edi.xml.documents.exceptions.XMLDocumentException
 
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
-import scala.util.{Failure, Success}
 
 object FileHandler {
 
@@ -42,6 +40,7 @@ object FileHandler {
  */
 abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: ValidJsonWebToken, meta: Meta) extends ActorLogging with Stash {
   implicit val ec = context.system.dispatcher
+  implicit val timeout = Timeout(3 seconds)
   var stopOnNextReceiveTimeout = false
   var fileIdFuture: Future[UUID] = FileMetaInfo.saveFileMeta(dal, originalJwt.jwt, meta)
   context.setReceiveTimeout(1 minute)
@@ -129,20 +128,13 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: ValidJ
       (converted, xml) <- Parser.convert(xml)
       (recipient, xml) <- Parser.checkRequisites(xml, senderCompanyId)
       xml <- Parser.modify(fileId, senderId, senderCompanyId, recipient, xml)
-    } yield (xml, converted, recipient)) andThen {
-      case Success((xml, _, _)) => {
+      uploadResult <- {
         val baos = new ByteArrayOutputStream()
         xml.write(baos)
-        fileStore ! ByteString.fromArray(baos.toByteArray)
-        fileStore ! Finish
-        //todo update db file#name
+        val byteArray = baos.toByteArray
+        fileStore ? FileServerMessage(ByteString.fromArray(byteArray), 0, byteArray.length, jwt, fileId)
       }
-      case Failure(e: XMLDocumentException) => {
-        fileStore ! fileBuilder
-        fileStore ! Finish
-      }
-      case Failure(e) => throw e
-    } andThen {
+    } yield (xml, converted, recipient)) andThen {
       case _ => self ! PoisonPill
     } map {
       case (xml, converted, recipient) => {
@@ -168,9 +160,15 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: ValidJ
           )
         )
       }
-    } recover {
-      case e: XMLDocumentException => InformalDocument(fileId.toString, fileName)
-      case e: ParserException => ParsingError(fileName, e.getErrorMessage)
+    } recoverWith {
+      case e: XMLDocumentException =>
+        fileStore ? FileServerMessage(fileBuilder, 0 , fileBuilder.size, jwt, fileId) map {_ =>
+          InformalDocument(fileId.toString, fileName)
+        } recover {
+          case e: FileServerClientException => ParsingError(fileName, "")
+        }
+      case e: ParserException => Future.successful(ParsingError(fileName, e.getErrorMessage))
+      case e: FileServerClientException => Future.successful(ParsingError(fileName, ""))
     }
   }
 

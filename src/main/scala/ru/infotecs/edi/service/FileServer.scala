@@ -1,22 +1,17 @@
 package ru.infotecs.edi.service
 
-import java.io.{BufferedOutputStream, IOException, OutputStream, File}
-import java.nio.file.{StandardOpenOption, OpenOption, Files}
+import java.io.{BufferedOutputStream, File, IOException, OutputStream}
+import java.nio.file.{Files, StandardOpenOption}
 
 import akka.actor._
-import akka.io.IO
 import akka.pattern._
-import akka.routing.RoundRobinPool
 import akka.util.{ByteString, Timeout}
 import ru.infotecs.edi.Settings
-import ru.infotecs.edi.service.FileServerClient.Finish
+import ru.infotecs.edi.service.FileServerClient.Ok
 import spray.can.Http
 import spray.http._
-import spray.httpx.marshalling._
-import spray.http.HttpMethods._
 
 import scala.concurrent.duration._
-import scala.util.{Failure, Success}
 
 /**
  * File store client. Implements specific chunk transfer.
@@ -25,7 +20,8 @@ import scala.util.{Failure, Success}
 // TODO prestart: establish connection to File Store and notify parent
 // TODO implement client as broker to distribute sending in several tcp connections and/or several nodes
 object FileServerClient {
-  case object Finish
+  case object Ok
+
 }
 
 case class FileServerClientException(message: Option[String])
@@ -47,11 +43,13 @@ class FileServerClient(io: ActorRef) extends ActorLogging with Stash {
       val recipient = sender()
       circuitBreaker.withCircuitBreaker {
         connector ? Post(settings.FileServerUploadUrl, message)
+      } map {
+        case HttpResponse(StatusCodes.OK, _, _, _) => Ok
+        case _ => Status.Failure(new FileServerClientException(Some("failed")))
       } pipeTo recipient
     }
 
     case Terminated(a) if a.equals(connector) => become(closed)
-    case Finish => connector ! Http.CloseAll; become(stopping)
     case Http.PeerClosed | Http.ErrorClosed => become(closed)
   }
 
@@ -80,7 +78,6 @@ class FileServerClient(io: ActorRef) extends ActorLogging with Stash {
       io ! Http.HostConnectorSetup(host = settings.FileServerHost, port = settings.FileServerPort)
       become(connecting)
     }
-    case Finish => stop(self)
   }
 
   def receive: Receive = closed
@@ -110,10 +107,6 @@ class DiskSave(fileName: String) extends Actor {
       } finally {
         fileOS foreach(os => os.close())
       }
-    }
-
-    case Finish => {
-      stop(self)
     }
   }
 
