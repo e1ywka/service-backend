@@ -7,8 +7,8 @@ import java.io.IOException
 
 import net.iharder.Base64
 
-case class Jwt(iss: Option[String], sub: Option[String], aud: Option[Vector[String]], exp: Option[String], nbf: Option[String],
-               iat: Option[String], jti: Option[String], cty: Option[String], pid: String, cid: String)
+case class Jwt(iss: Option[String], sub: Option[String], aud: Option[Vector[String]], exp: Option[Int], nbf: Option[Int],
+               iat: Option[Int], jti: Option[String], cty: Option[String], pid: String, cid: String)
 
 case class Jws(alg: Alg.Alg, typ: String)
 

@@ -24,8 +24,13 @@ object FileServerClient {
 
 }
 
-case class FileServerClientException(message: Option[String])
-  extends Exception(message.getOrElse("Unexpected exception"))
+case class FileServerClientException(message: String, cause: Throwable)
+  extends Exception(message, cause) {
+
+  def this(message: String) = {
+    this(message, null)
+  }
+}
 
 class FileServerClient(io: ActorRef) extends ActorLogging with Stash {
   import context._
@@ -44,8 +49,9 @@ class FileServerClient(io: ActorRef) extends ActorLogging with Stash {
       circuitBreaker.withCircuitBreaker {
         connector ? Post(settings.FileServerUploadUrl, message)
       } map {
-        case HttpResponse(StatusCodes.OK, _, _, _) => Ok
-        case _ => Status.Failure(new FileServerClientException(Some("failed")))
+        case HttpResponse(StatusCodes.Success(_), _, _, _) => Ok
+        case HttpResponse(status, entity, _, _) =>
+          Status.Failure(new FileServerClientException(s"Request failed: $status, $entity"))
       } pipeTo recipient
     }
 
@@ -56,7 +62,7 @@ class FileServerClient(io: ActorRef) extends ActorLogging with Stash {
   def stopping: Receive = {
     case 'Status => sender() ! 'Stopping
     case Http.Closed | Http.ClosedAll | Http.CommandFailed(_) => stop(self)
-    case _: FileServerMessage => sender() ! Status.Failure(FileServerClientException(Some("FileServerClient is stopping")))
+    case _: FileServerMessage => sender() ! Status.Failure(new FileServerClientException("FileServerClient is stopping"))
   }
 
   def connecting: Receive = {

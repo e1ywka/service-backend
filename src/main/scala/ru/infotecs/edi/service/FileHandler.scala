@@ -45,7 +45,7 @@ abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Valid
   var fileIdFuture: Future[UUID] = FileMetaInfo.saveFileMeta(dal, originalJwt.jwt, meta)
   context.setReceiveTimeout(1 minute)
 
-  def handlingUpload(fileChunk: FileChunk): Unit
+  def handlingUpload(fileChunk: FileChunk): Future[Int]
 
   def uploadFinishedMessage(fileName: String, fileId: UUID): Future[ParsedDocument]
 
@@ -53,13 +53,12 @@ abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Valid
     case f@AuthFileChunk(FileChunk((chunk, _), filePart, Meta(fileName, _, _)), jwt) if chunk == expectingChunk => {
       stopOnNextReceiveTimeout = false
       unstashAll()
-      handlingUpload(f.fileChunk)
-      log.debug("File chunk uploaded")
-      sender ! UnparsedDocumentPart
+      val uploadResult = for {
+        uploadChunkSize <- handlingUpload(f.fileChunk)
+      } yield UnparsedDocumentPart
+      uploadResult pipeTo sender
       context become handleNextChunk(expectingChunk + 1, totalChunks)
     }
-
-    case f: AuthFileChunk => stash(); log.debug("File chunk stashed")
 
     case ReceiveTimeout => if (stopOnNextReceiveTimeout) {
       context stop self
@@ -70,11 +69,12 @@ abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Valid
 
   def lastPartHandling(totalChunks: Int): Receive = {
     case f@AuthFileChunk(FileChunk((chunk, _), filePart, Meta(fileName, _, _)), jwt) => {
-      handlingUpload(f.fileChunk)
-      log.debug("Upload finished")
-      fileIdFuture flatMap { fileId =>
-        uploadFinishedMessage(fileName, fileId)
-      } pipeTo sender
+      val uploadResult = for {
+        fileId <- fileIdFuture
+        uploadChunkSize <- handlingUpload(f.fileChunk)
+        document <- uploadFinishedMessage(fileName, fileId)
+      } yield document
+      uploadResult pipeTo sender
     }
 
     case ReceiveTimeout => if (stopOnNextReceiveTimeout) {
@@ -173,9 +173,10 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: ValidJ
   }
 
   def handlingUpload(fileChunk: FileChunk) = {
-    import fileChunk._
     // выполнять парсинг файла
-    fileBuilder = fileBuilder ++ file.entity.data.toByteString
+    val uploadChunk = fileChunk.file.entity.data.toByteString
+    fileBuilder = fileBuilder ++ uploadChunk
+    Future.successful(uploadChunk.size)
   }
 }
 
@@ -196,9 +197,12 @@ class InformalFileHandler(parent: ActorRef, dal: Dal, jwt: ValidJsonWebToken, me
   }
 
   def handlingUpload(fileChunk: FileChunk) = {
-    fileIdFuture.foreach(fileId => {
-      fileServerConnector ! FileServerMessage(fileChunk.file.entity.data.toByteString, offset, fileChunk.meta.size, jwt, fileId)
-    })
+    val uploadChunk = fileChunk.file.entity.data.toByteString
+    for {
+      fileId <- fileIdFuture
+      fileServerResponse <-
+        fileServerConnector ? FileServerMessage(uploadChunk, offset, fileChunk.meta.size, jwt, fileId)
+    } yield uploadChunk.size
   }
 
   @throws[Exception](classOf[Exception])
