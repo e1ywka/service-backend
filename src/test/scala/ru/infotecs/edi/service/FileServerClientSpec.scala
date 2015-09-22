@@ -6,17 +6,16 @@ package ru.infotecs.edi.service
 import java.io.IOException
 import java.util.UUID
 
-import akka.actor.{Status, Props, ActorSystem}
+import akka.actor.{ActorSystem, Props, Status}
 import akka.io.Tcp
 import akka.pattern.CircuitBreakerOpenException
 import akka.testkit._
 import akka.util.ByteString
-import org.scalatest.{Matchers, WordSpecLike, BeforeAndAfterAll}
+import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 import ru.infotecs.edi.Settings
-import ru.infotecs.edi.security.{JsonWebToken}
+import ru.infotecs.edi.security.JsonWebToken
 import spray.can.Http
-import spray.http.HttpHeaders.Authorization
-import spray.http.{GenericHttpCredentials, HttpEntity, HttpResponse, HttpRequest}
+import spray.http.{HttpEntity, HttpRequest, HttpResponse}
 
 import scala.concurrent.duration._
 
@@ -81,7 +80,7 @@ with ImplicitSender with WordSpecLike with BeforeAndAfterAll with Matchers {
       // stashed message is sent
       io.expectMsgClass(classOf[HttpRequest])
       io.reply(HttpResponse(status = 200, entity = HttpEntity.Empty))
-      client.expectMsgClass(classOf[HttpResponse])
+      client.expectMsg(FileServerClient.Ok)
     }
 
     "open circuit breaker on failures" in {

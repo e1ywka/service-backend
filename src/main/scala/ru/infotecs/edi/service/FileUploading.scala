@@ -1,23 +1,14 @@
 package ru.infotecs.edi.service
 
-import java.io.ByteArrayOutputStream
-import java.util.UUID
-
 import akka.actor.SupervisorStrategy.Resume
 import akka.actor._
-import akka.pattern.{ask, pipe}
-import akka.util.{ByteString, Timeout}
-import ru.infotecs.edi.db.{Dal, FileInfo}
-import ru.infotecs.edi.security.{JsonWebToken, Jwt}
-import ru.infotecs.edi.service.FileServerClient.Finish
+import akka.util.Timeout
+import ru.infotecs.edi.db.Dal
+import ru.infotecs.edi.security.JsonWebToken
 import ru.infotecs.edi.service.FileUploading._
-import ru.infotecs.edi.xml.documents.clientDocuments.{AbstractCorrectiveInvoice, AbstractInvoice}
-import ru.infotecs.edi.xml.documents.exceptions.ParseDocumentException
 import spray.http._
 
 import scala.concurrent.duration._
-import scala.concurrent.{Await, Future}
-import scala.util.{Failure, Success}
 
 object FileUploading {
 
