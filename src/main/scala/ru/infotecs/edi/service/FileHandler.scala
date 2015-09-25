@@ -58,6 +58,8 @@ abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Valid
       context become handleNextChunk(expectingChunk + 1, totalChunks)
     }
 
+    case _: AuthFileChunk => stash()
+
     case ReceiveTimeout => if (stopOnNextReceiveTimeout) {
       context stop self
     } else {
