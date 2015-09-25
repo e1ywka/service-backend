@@ -6,8 +6,6 @@
         </encoder>
     </appender>
 
-    <logger name="slick" level="SQL" />
-
     <root level="info">
         <appender-ref ref="CONSOLE" />
     </root>
