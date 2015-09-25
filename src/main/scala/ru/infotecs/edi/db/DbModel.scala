@@ -5,8 +5,6 @@ package ru.infotecs.edi.db
 
 import java.util.UUID
 
-import slick.lifted.ForeignKey
-
 /**
  * Meta information about files.
  * @param id unique file id.
@@ -68,7 +66,7 @@ trait DbModel { this: DriverComponent =>
   val friendships = TableQuery[Friendships]
 
   class Persons(tag: Tag) extends Table[Person](tag, "person") {
-    def id = column[UUID]("b2b_friendship_uuid", O.PrimaryKey)
+    def id = column[UUID]("person_uuid", O.PrimaryKey)
     def lastName = column[String]("last_name")
     def firstName = column[String]("first_name")
     def middleName = column[Option[String]]("middle_name")

@@ -3,6 +3,8 @@
  */
 package ru.infotecs.edi.service
 
+import java.io.ByteArrayOutputStream
+import java.security.MessageDigest
 import java.util.UUID
 
 import akka.util.ByteString
@@ -121,6 +123,16 @@ object Parser {
       }
       xmlDocument
     }
+  }
+
+  def serializeAndHash(xml: ClientDocument): Future[(Array[Byte], Array[Byte])] = Future {
+    val baos = new ByteArrayOutputStream()
+    xml.write(baos)
+    val bytes = baos.toByteArray
+
+    val sha256Digest: MessageDigest = MessageDigest.getInstance("SHA-256")
+    val digest = sha256Digest.digest(bytes)
+    (bytes, digest)
   }
 
   case class ParserException(private val error: ParserError) extends Exception {

@@ -3,7 +3,6 @@
  */
 package ru.infotecs.edi.service
 
-import java.io.ByteArrayOutputStream
 import java.util.UUID
 
 import akka.actor._
@@ -17,8 +16,8 @@ import ru.infotecs.edi.service.Parser.ParserException
 import ru.infotecs.edi.xml.documents.clientDocuments.{AbstractCorrectiveInvoice, AbstractInvoice}
 import ru.infotecs.edi.xml.documents.exceptions.XMLDocumentException
 
+import scala.concurrent.Future
 import scala.concurrent.duration._
-import scala.concurrent.{Await, Future}
 
 object FileHandler {
 
@@ -42,12 +41,11 @@ abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Valid
   implicit val ec = context.system.dispatcher
   implicit val timeout = Timeout(3 seconds)
   var stopOnNextReceiveTimeout = false
-  var fileIdFuture: Future[UUID] = FileMetaInfo.saveFileMeta(dal, originalJwt.jwt, meta)
   context.setReceiveTimeout(1 minute)
 
   def handlingUpload(fileChunk: FileChunk): Future[Int]
 
-  def uploadFinishedMessage(fileName: String, fileId: UUID): Future[ParsedDocument]
+  def uploadFinishedMessage(fileName: String): Future[ParsedDocument]
 
   def nextPartHandling(expectingChunk: Int, totalChunks: Int): Receive = {
     case f@AuthFileChunk(FileChunk((chunk, _), filePart, Meta(fileName, _, _)), jwt) if chunk == expectingChunk => {
@@ -70,9 +68,8 @@ abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Valid
   def lastPartHandling(totalChunks: Int): Receive = {
     case f@AuthFileChunk(FileChunk((chunk, _), filePart, Meta(fileName, _, _)), jwt) => {
       val uploadResult = for {
-        fileId <- fileIdFuture
         uploadChunkSize <- handlingUpload(f.fileChunk)
-        document <- uploadFinishedMessage(fileName, fileId)
+        document <- uploadFinishedMessage(fileName)
       } yield document
       uploadResult pipeTo sender
     }
@@ -106,7 +103,6 @@ abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Valid
   @throws[Exception](classOf[Exception])
   override def preStart(): Unit = {
     super.preStart()
-    Await.ready(fileIdFuture, 2 seconds)
   }
 }
 
@@ -119,8 +115,9 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: ValidJ
   implicit val config = Settings(context.system)
   var fileBuilder = ByteString.empty
   val fileStore = context.actorSelection("/user/fileServerClient")
+  val fileId = UUID.randomUUID()
 
-  override def uploadFinishedMessage(fileName: String, fileId: UUID): Future[ParsedDocument] = {
+  override def uploadFinishedMessage(fileName: String): Future[ParsedDocument] = {
     val senderCompanyId = UUID.fromString(jwt.jwt.cid)
     val senderId = UUID.fromString(jwt.jwt.pid)
     (for {
@@ -128,12 +125,9 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: ValidJ
       (converted, xml) <- Parser.convert(xml)
       (recipient, xml) <- Parser.checkRequisites(xml, senderCompanyId)
       xml <- Parser.modify(fileId, senderId, senderCompanyId, recipient, xml)
-      uploadResult <- {
-        val baos = new ByteArrayOutputStream()
-        xml.write(baos)
-        val byteArray = baos.toByteArray
-        fileStore ? FileServerMessage(ByteString.fromArray(byteArray), 0, byteArray.length, jwt, fileId)
-      }
+      (bytes, hash) <- Parser.serializeAndHash(xml)
+      fileSavedId <- FileMetaInfo.saveFileMeta(fileId, dal, jwt.jwt, xml.getFileName, bytes.length, hash)
+      uploadResult <- fileStore ? FileServerMessage(ByteString.fromArray(bytes), 0, bytes.length, jwt, fileId)
     } yield (xml, converted, recipient)) andThen {
       case _ => self ! PoisonPill
     } map {
@@ -188,12 +182,15 @@ class InformalFileHandler(parent: ActorRef, dal: Dal, jwt: ValidJsonWebToken, me
 
   val fileServerConnector = context.actorSelection("/user/fileServerClient")
   val offset: Int = 0
+  var fileIdFuture: Future[UUID] = FileMetaInfo.saveFileMeta(UUID.randomUUID(), dal, jwt.jwt, meta)
 
-  override def uploadFinishedMessage(fileName: String, fileId: UUID): Future[ParsedDocument] = {
+  override def uploadFinishedMessage(fileName: String): Future[ParsedDocument] = {
     //context unwatch fileServerConnector
     //fileServerConnector ! Finish
     self ! PoisonPill
-    Future.successful(InformalDocument(fileId.toString, fileName))
+    for {
+      fileId <- fileIdFuture
+    } yield InformalDocument(fileId.toString, fileName)
   }
 
   def handlingUpload(fileChunk: FileChunk) = {
@@ -208,7 +205,6 @@ class InformalFileHandler(parent: ActorRef, dal: Dal, jwt: ValidJsonWebToken, me
   @throws[Exception](classOf[Exception])
   override def preStart(): Unit = {
     super.preStart()
-    //context watch fileServerConnector
   }
 }
 
