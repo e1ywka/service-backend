@@ -17,6 +17,6 @@ object PostgresDal {
   }
 }
 
-class PostgresDal(val database: Database)(implicit val scheduler: Scheduler) extends Dal {
+class PostgresDal private (val database: Database)(implicit val scheduler: Scheduler) extends Dal {
   val driver = PostgresDriver
 }

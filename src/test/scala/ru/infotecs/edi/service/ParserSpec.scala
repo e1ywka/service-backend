@@ -6,12 +6,11 @@ package ru.infotecs.edi.service
 import java.nio.file.{Files, Paths}
 import java.util.UUID
 
-import akka.actor.ActorSystem
 import akka.util.ByteString
-import com.typesafe.config.{ConfigFactory, Config}
+import com.typesafe.config.ConfigFactory
 import org.scalatest.prop.TableDrivenPropertyChecks
 import org.scalatest.{BeforeAndAfter, BeforeAndAfterAll, FlatSpec, Matchers}
-import ru.infotecs.edi.{SettingsImpl, Settings}
+import ru.infotecs.edi.SettingsImpl
 import ru.infotecs.edi.db.{Company, Friendship, H2Dal, Person}
 import slick.driver.H2Driver.api._
 
@@ -24,7 +23,7 @@ class ParserSpec extends FlatSpec with Matchers
 with BeforeAndAfter with BeforeAndAfterAll with TableDrivenPropertyChecks {
 
   implicit val settings = new SettingsImpl(ConfigFactory.load())
-  implicit val dal = H2Dal("h2mem1")
+  implicit val dal = H2Dal("ParserSpec")
   val ddl = dal.fileInfos.schema ++ dal.companies.schema ++ dal.friendships.schema ++ dal.persons.schema
 
   override protected def afterAll(): Unit = {

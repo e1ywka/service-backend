@@ -101,11 +101,6 @@ abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Valid
       nextPartHandling(nextChunk, totalChunks)
     }
   }
-
-  @throws[Exception](classOf[Exception])
-  override def preStart(): Unit = {
-    super.preStart()
-  }
 }
 
 /**
@@ -204,9 +199,5 @@ class InformalFileHandler(parent: ActorRef, dal: Dal, jwt: ValidJsonWebToken, me
     } yield uploadChunk.size
   }
 
-  @throws[Exception](classOf[Exception])
-  override def preStart(): Unit = {
-    super.preStart()
-  }
 }
 

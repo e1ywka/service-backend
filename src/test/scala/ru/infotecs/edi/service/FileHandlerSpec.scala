@@ -8,7 +8,7 @@ import java.nio.file.{Files, Path, Paths}
 import java.util.UUID
 
 import akka.actor.{Actor, ActorSystem, Props}
-import akka.testkit.{TestProbe, ImplicitSender, TestKit}
+import akka.testkit.{ImplicitSender, TestKit}
 import akka.util.{ByteString, Timeout}
 import org.scalatest._
 import ru.infotecs.edi.db.{Company, Friendship, H2Dal, Person}
@@ -34,7 +34,7 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
   }), "fileServerClient"
   )
 
-  val dal = H2Dal("h2mem1")
+  val dal = H2Dal("filehandlerspec")
   val ddl = dal.companies.schema ++ dal.friendships.schema ++ dal.fileInfos.schema ++ dal.persons.schema
 
   implicit val timeout = Timeout(1 second)

@@ -8,7 +8,7 @@ import java.util.UUID
 import org.scalatest.{BeforeAndAfterAll, FlatSpec, Matchers}
 import slick.driver.H2Driver.api._
 
-import scala.concurrent.{Future, Await}
+import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
@@ -16,7 +16,7 @@ class DbSpec extends FlatSpec with Matchers with BeforeAndAfterAll {
 
   import scala.concurrent.ExecutionContext.Implicits.global
 
-  val dal = H2Dal("h2mem1")
+  val dal = H2Dal("dbspec")
   val select1query = sql"SELECT 1".as[Int].headOption
 
   assume(Await.result(dal.database.run(select1query), Duration.Inf).contains(1))
