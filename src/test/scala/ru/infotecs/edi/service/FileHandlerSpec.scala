@@ -8,7 +8,7 @@ import java.nio.file.{Files, Path, Paths}
 import java.util.UUID
 
 import akka.actor.{Actor, ActorSystem, Props}
-import akka.testkit.{ImplicitSender, TestKit}
+import akka.testkit.{ImplicitSender, TestKit, TestProbe}
 import akka.util.{ByteString, Timeout}
 import org.scalatest._
 import ru.infotecs.edi.db.{Company, Friendship, H2Dal, Person}
@@ -84,9 +84,12 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
       val file = new File(getClass.getResource("cf.xml").toURI)
       val f = AuthFileChunk(FileChunk((0, totalChunks), BodyPart(file, "cf.xml"), Meta("cf.xml", 1000, "123")), jwt)
       val actorRef = system.actorOf(Props(classOf[FormalizedFileHandler], self, dal, jwt, f.fileChunk.meta))
+      val deathPactWatch = TestProbe()
+      deathPactWatch.watch(actorRef)
       actorRef ! Init(totalChunks)
       actorRef ! f
       expectMsgClass(classOf[FormalDocument])
+      deathPactWatch.expectTerminated(actorRef)
     }
 
     "respect ordering of chunks" in {
@@ -99,10 +102,13 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
 
       fileChunks.size should be(totalChunks)
       val actorRef = system.actorOf(Props(classOf[FormalizedFileHandler], self, dal, jwt, fileChunks.head.fileChunk.meta))
+      val deathPactWatch = TestProbe()
+      deathPactWatch.watch(actorRef)
       actorRef ! Init(totalChunks)
       Random.shuffle(fileChunks).foreach(f => actorRef ! f)
       receiveN(9)
       expectMsgClass(classOf[FormalDocument])
+      deathPactWatch.expectTerminated(actorRef)
     }
   }
 
