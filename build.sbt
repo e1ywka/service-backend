@@ -4,6 +4,13 @@ version := "1.0"
 
 scalaVersion := "2.11.6"
 
+assemblyJarName in assembly := {
+  val versionStr = version.value
+  s"service-backend-${versionStr}.jar"
+}
+
+mainClass in assembly := Some("ru.infotecs.edi.service.Main")
+
 resolvers += "spray repo" at "http://repo.spray.io"
 
 libraryDependencies += "io.spray" %% "spray-can" % "1.3.3"
