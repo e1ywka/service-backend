@@ -73,7 +73,9 @@ abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Valid
         uploadChunkSize <- handlingUpload(f.fileChunk)
         document <- uploadFinishedMessage(fileName)
       } yield document
-      uploadResult pipeTo sender
+      uploadResult pipeTo sender foreach (_ => {
+        self ! PoisonPill
+      })
     }
 
     case ReceiveTimeout => if (stopOnNextReceiveTimeout) {
@@ -125,9 +127,7 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: ValidJ
       (bytes, hash) <- Parser.serializeAndHash(xml)
       fileSavedId <- FileMetaInfo.saveFileMeta(fileId, dal, jwt.jwt, xml.getFileName, bytes.length, hash)
       uploadResult <- fileStore ? FileServerMessage(ByteString.fromArray(bytes), 0, bytes.length, jwt, fileId)
-    } yield (xml, converted, recipient)) andThen {
-      case _ => self ! PoisonPill
-    } map {
+    } yield (xml, converted, recipient)) map {
       case (xml, converted, recipient) => {
         val invoiceChangeNumber = xml match {
           case x: AbstractInvoice if x.getChangeNumber != null => Some(x.getChangeNumber)
@@ -179,12 +179,10 @@ class InformalFileHandler(parent: ActorRef, dal: Dal, jwt: ValidJsonWebToken, me
   extends FileHandler(parent, dal, jwt, meta) {
 
   val fileServerConnector = context.actorSelection("/user/fileServerClient")
-  val offset: Int = 0
+  var offset: Long = 0
   var fileIdFuture: Future[UUID] = FileMetaInfo.saveFileMeta(UUID.randomUUID(), dal, jwt.jwt, meta)
 
   override def uploadFinishedMessage(fileName: String): Future[ParsedDocument] = {
-    //context unwatch fileServerConnector
-    //fileServerConnector ! Finish
     self ! PoisonPill
     for {
       fileId <- fileIdFuture
@@ -193,10 +191,12 @@ class InformalFileHandler(parent: ActorRef, dal: Dal, jwt: ValidJsonWebToken, me
 
   def handlingUpload(fileChunk: FileChunk) = {
     val uploadChunk = fileChunk.file.entity.data.toByteString
+    val currentOffset = offset
+    offset += uploadChunk.size
     for {
       fileId <- fileIdFuture
       fileServerResponse <-
-        fileServerConnector ? FileServerMessage(uploadChunk, offset, fileChunk.meta.size, jwt, fileId)
+        fileServerConnector ? FileServerMessage(uploadChunk, currentOffset, fileChunk.meta.size, jwt, fileId)
     } yield uploadChunk.size
   }
 
