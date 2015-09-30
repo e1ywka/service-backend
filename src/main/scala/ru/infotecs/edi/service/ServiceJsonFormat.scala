@@ -15,7 +15,7 @@ case object UnparsedDocumentPart extends ParsedDocument
  * @param fileName user specified file name.
  * @param isFormal is document formalized. must be false.
  */
-case class InformalDocument(fileId: String, fileName: String, isFormal: Boolean = false) extends ParsedDocument
+case class InformalDocument(fileId: String, fileName: String, mediaType: String, isFormal: Boolean = false) extends ParsedDocument
 
 /**
  * Formal document.
@@ -29,7 +29,7 @@ case class InformalDocument(fileId: String, fileName: String, isFormal: Boolean 
  */
 case class FormalDocument(fileId: String, fileName: String, formalType: String, isConverted: Boolean,
                           documentName: String, recipientId: Option[String], params: FormalDocumentParams,
-                          isFormal: Boolean = true) extends ParsedDocument
+                          isFormal: Boolean = true, mediaType: String = "text/xml") extends ParsedDocument
 
 case class FormalDocumentParams(primaryFormalNumber: String,
                                 primaryFormalDate: String,
@@ -46,8 +46,8 @@ case class FormalDocumentParams(primaryFormalNumber: String,
 case class ParsingError(fileName: String, errorMessage: String) extends ParsedDocument
 
 object ServiceJsonFormat {
-  implicit val unformalDocumentFormat = jsonFormat3(InformalDocument)
+  implicit val unformalDocumentFormat = jsonFormat4(InformalDocument)
   implicit val formalDocumentParamsFormat = jsonFormat6(FormalDocumentParams)
-  implicit val formalDocumentFormat = jsonFormat8(FormalDocument)
+  implicit val formalDocumentFormat = jsonFormat9(FormalDocument)
   implicit val parsingErrorFormat = jsonFormat2(ParsingError)
 }

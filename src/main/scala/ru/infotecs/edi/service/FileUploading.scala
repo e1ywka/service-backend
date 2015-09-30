@@ -18,7 +18,7 @@ object FileUploading {
    * @param size total file size.
    * @param sha256Hash SHA-256 file digest.
    */
-  case class Meta(fileName: String, size: Long, sha256Hash: String)
+  case class Meta(fileName: String, size: Long, mediaType: String, sha256Hash: String)
 
   type ChunkOrder = (Int, Int)
 
@@ -58,7 +58,7 @@ class FileUploading(dal: Dal) extends Actor {
   }
 
   def receive: Receive = {
-    case f@AuthFileChunk(FileChunk((_, chunks), _, Meta(fileName, _, _)), jwt) => {
+    case f@AuthFileChunk(FileChunk((_, chunks), _, Meta(fileName, _, _, _)), jwt) => {
       val handler = fileHandlers.getOrElseUpdate(fileName, createFileHandler(f))
       handler forward f
     }

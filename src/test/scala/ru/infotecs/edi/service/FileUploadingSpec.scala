@@ -23,7 +23,7 @@ class FileUploadingSpec extends FlatSpec {
   ignore should "create new FileHandler for new file" in {
     val actorRef = TestActorRef(new FileUploading(dal))
     val actor = actorRef.underlyingActor
-    actorRef ! AuthFileChunk(FileChunk((0, 1), BodyPart("123", "file"),  Meta("fileName", 17, "123")), null)
+    actorRef ! AuthFileChunk(FileChunk((0, 1), BodyPart("123", "file"),  Meta("fileName", 17, "text/plain", "123")), null)
 
     assert(actor.fileHandlers.contains("fileName"))
   }

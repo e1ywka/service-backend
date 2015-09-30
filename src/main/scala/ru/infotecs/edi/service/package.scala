@@ -36,12 +36,17 @@ package object service {
         file <- data.get("file")
         fileNameBodyPart <- data.get("name")
         fileSizeBodyPart <- data.get("size")
+        mediaTypeBodyPart <- data.get("mediaType")
         fileSize <- Try {
           fileSizeBodyPart.entity.asString.toLong
         }.toOption
         fileHashBodyPart <- data.get("sha256hash")
+        mediaType <- Try {
+          mediaTypeBodyPart.entity.asString
+        }.toOption
         meta <- Some(Meta(fileNameBodyPart.entity.asString,
           fileSize,
+          mediaType,
           fileHashBodyPart.entity.asString))
       } yield FileUploading.FileChunk((chunk, chunks), file, meta)
 

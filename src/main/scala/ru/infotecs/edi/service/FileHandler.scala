@@ -48,7 +48,7 @@ abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Valid
   def uploadFinishedMessage(fileName: String): Future[ParsedDocument]
 
   def nextPartHandling(expectingChunk: Int, totalChunks: Int): Receive = {
-    case f@AuthFileChunk(FileChunk((chunk, _), filePart, Meta(fileName, _, _)), jwt) if chunk == expectingChunk => {
+    case f@AuthFileChunk(FileChunk((chunk, _), filePart, Meta(fileName, _, _, _)), jwt) if chunk == expectingChunk => {
       stopOnNextReceiveTimeout = false
       unstashAll()
       val uploadResult = for {
@@ -68,7 +68,7 @@ abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: Valid
   }
 
   def lastPartHandling(totalChunks: Int): Receive = {
-    case f@AuthFileChunk(FileChunk((chunk, _), filePart, Meta(fileName, _, _)), jwt) => {
+    case f@AuthFileChunk(FileChunk((chunk, _), filePart, Meta(fileName, _, _, _)), jwt) => {
       val uploadResult = for {
         uploadChunkSize <- handlingUpload(f.fileChunk)
         document <- uploadFinishedMessage(fileName)
@@ -155,7 +155,7 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: ValidJ
     } recoverWith {
       case e: XMLDocumentException =>
         fileStore ? FileServerMessage(fileBuilder, 0 , fileBuilder.size, jwt, fileId) map {_ =>
-          InformalDocument(fileId.toString, fileName)
+          InformalDocument(fileId.toString, fileName, meta.mediaType)
         } recover {
           case e: FileServerClientException => ParsingError(fileName, "")
         }
@@ -188,7 +188,7 @@ class InformalFileHandler(parent: ActorRef, dal: Dal, jwt: ValidJsonWebToken, me
     self ! PoisonPill
     for {
       fileId <- fileIdFuture
-    } yield InformalDocument(fileId.toString, fileName)
+    } yield InformalDocument(fileId.toString, fileName, meta.mediaType)
   }
 
   def handlingUpload(fileChunk: FileChunk) = {

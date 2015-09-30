@@ -72,7 +72,7 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
 
     "become handling on Init message" in {
       val totalChunks = 2
-      val f = AuthFileChunk(FileChunk((0, totalChunks), BodyPart(message, "file"), Meta("fileName", 17, "123")), jwt)
+      val f = AuthFileChunk(FileChunk((0, totalChunks), BodyPart(message, "file"), Meta("fileName", 17, "text/plain",  "123")), jwt)
       val actorRef = system.actorOf(Props(classOf[FormalizedFileHandler], self, dal, jwt, f.fileChunk.meta))
       actorRef ! Init(totalChunks)
       actorRef ! f
@@ -82,7 +82,7 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
     "respond with document model" in {
       val totalChunks = 1
       val file = new File(getClass.getResource("cf.xml").toURI)
-      val f = AuthFileChunk(FileChunk((0, totalChunks), BodyPart(file, "cf.xml"), Meta("cf.xml", 1000, "123")), jwt)
+      val f = AuthFileChunk(FileChunk((0, totalChunks), BodyPart(file, "cf.xml"), Meta("cf.xml", 1000, "text/xml", "123")), jwt)
       val actorRef = system.actorOf(Props(classOf[FormalizedFileHandler], self, dal, jwt, f.fileChunk.meta))
       val deathPactWatch = TestProbe()
       deathPactWatch.watch(actorRef)
@@ -97,7 +97,7 @@ with ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
       val filePath = Paths.get(getClass.getResource("cf.xml").toURI)
 
       val fileChunks = splitFile(filePath, totalChunks).zipWithIndex.map(part => {
-        AuthFileChunk(FileChunk((part._2, totalChunks), BodyPart(HttpEntity(part._1)), Meta("cf.xml", part._1.length, "123")), jwt)
+        AuthFileChunk(FileChunk((part._2, totalChunks), BodyPart(HttpEntity(part._1)), Meta("cf.xml", part._1.length, "text/xml", "123")), jwt)
       }).toList
 
       fileChunks.size should be(totalChunks)
