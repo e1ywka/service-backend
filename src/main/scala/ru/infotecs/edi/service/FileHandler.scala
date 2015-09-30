@@ -146,6 +146,7 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: ValidJ
           FormalDocumentParams(xml.getPrimaryNumber,
             xml.getPrimaryDate.toInstant.getEpochSecond.toString,
             xml.getExternalInteractionId.toString,
+            xml.getPrintedFormId,
             invoiceChangeNumber,
             invoiceCorrectionNumber
           )

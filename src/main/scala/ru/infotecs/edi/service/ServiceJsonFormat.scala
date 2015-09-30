@@ -31,8 +31,12 @@ case class FormalDocument(fileId: String, fileName: String, formalType: String, 
                           documentName: String, recipientId: Option[String], params: FormalDocumentParams,
                           isFormal: Boolean = true) extends ParsedDocument
 
-case class FormalDocumentParams(primaryFormalNumber: String, primaryFormalDate: String, externalInteractionId: String,
-                                changeNumber: Option[String], invoiceCorrectionNumber: Option[String])
+case class FormalDocumentParams(primaryFormalNumber: String,
+                                primaryFormalDate: String,
+                                externalInteractionId: String,
+                                printedForm: String,
+                                changeNumber: Option[String],
+                                invoiceCorrectionNumber: Option[String])
 
 /**
  * Error parsing formal document.
@@ -43,7 +47,7 @@ case class ParsingError(fileName: String, errorMessage: String) extends ParsedDo
 
 object ServiceJsonFormat {
   implicit val unformalDocumentFormat = jsonFormat3(InformalDocument)
-  implicit val formalDocumentParamsFormat = jsonFormat5(FormalDocumentParams)
+  implicit val formalDocumentParamsFormat = jsonFormat6(FormalDocumentParams)
   implicit val formalDocumentFormat = jsonFormat8(FormalDocument)
   implicit val parsingErrorFormat = jsonFormat2(ParsingError)
 }
