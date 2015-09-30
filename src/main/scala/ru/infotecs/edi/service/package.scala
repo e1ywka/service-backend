@@ -6,9 +6,9 @@ package ru.infotecs.edi
 import java.util.UUID
 
 import akka.util.ByteString
-import ru.infotecs.edi.security.{JsonWebToken}
-import ru.infotecs.edi.service.FileUploading.{Meta, FileChunk}
-import spray.http.HttpHeaders.{RawHeader, `Content-Disposition`, Authorization}
+import ru.infotecs.edi.security.JsonWebToken
+import ru.infotecs.edi.service.FileUploading.{FileChunk, Meta}
+import spray.http.HttpHeaders.{Authorization, RawHeader, `Content-Disposition`}
 import spray.http._
 import spray.httpx.marshalling.Marshaller
 import spray.httpx.unmarshalling._
@@ -18,6 +18,7 @@ import scala.util.Try
 package object service {
 
   import MediaTypes.{`application/octet-stream`, `multipart/form-data`}
+  import spray.json.DefaultJsonProtocol._
 
   /**
    * Unmarshaller maps multipart request as FileChunk.
@@ -66,4 +67,8 @@ package object service {
         RawHeader("X-Content-Range", s"bytes ${value.offset}-${value.offset+value.part.size-1}/${value.totalSize}")
       )
     }
+
+  case class ErrorMessage(error: String)
+
+  implicit val errorMessageUnmarshaller = jsonFormat1(ErrorMessage)
 }

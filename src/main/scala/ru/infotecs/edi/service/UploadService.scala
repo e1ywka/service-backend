@@ -8,14 +8,16 @@ import akka.pattern.ask
 import akka.util.Timeout
 import ru.infotecs.edi.security.{InvalidJsonWebToken, JsonWebToken, ValidJsonWebToken}
 import ru.infotecs.edi.service.FileUploading._
+import ru.infotecs.edi.service.Parser.ParserException
 import spray.http.StatusCodes._
 import spray.http._
 import spray.httpx.SprayJsonSupport._
 import spray.httpx.marshalling._
 import spray.httpx.unmarshalling._
-import spray.routing.{ExceptionHandler, HttpServiceActor}
+import spray.routing._
 
 import scala.concurrent.duration._
+import scala.util.Failure
 
 class UploadService(fileUploading: ActorRef) extends HttpServiceActor with ActorLogging {
   import ServiceJsonFormat._
@@ -52,8 +54,8 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor with Actor
                   JsonWebToken(token.content) match {
                     case InvalidJsonWebToken(_) => HttpResponse(Unauthorized, "Token is invalid")
                     case t: ValidJsonWebToken =>
-                      fileUploading ? AuthFileChunk(f, t) recover {
-                        case e => log.error(e, "Error while handling file upload")
+                      fileUploading ? AuthFileChunk(f, t) andThen {
+                        case Failure(e) => log.error(e, "Error while handling file upload")
                       } map {
                         case UnparsedDocumentPart => HttpResponse(NoContent)
                         case informal: InformalDocument => HttpResponse(OK, marshalUnsafe(informal))
@@ -72,7 +74,9 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor with Actor
   def receive = runRoute(uploadServiceRoute)
 
   implicit val exceptionHanlder = ExceptionHandler {
-    case e => complete(HttpResponse(500, e.getMessage))
+    case e: ParserException => complete(BadRequest, ErrorMessage(e.getErrorMessage))
+    case e: FileServerClientException => complete(InternalServerError)
+    case e: Throwable => complete(InternalServerError)
   }
 
   lazy val formUpload =

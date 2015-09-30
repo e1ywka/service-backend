@@ -12,7 +12,6 @@ import ru.infotecs.edi.Settings
 import ru.infotecs.edi.db.Dal
 import ru.infotecs.edi.security.ValidJsonWebToken
 import ru.infotecs.edi.service.FileUploading.{AuthFileChunk, FileChunk, Meta}
-import ru.infotecs.edi.service.Parser.ParserException
 import ru.infotecs.edi.xml.documents.clientDocuments.{AbstractCorrectiveInvoice, AbstractInvoice}
 import ru.infotecs.edi.xml.documents.exceptions.XMLDocumentException
 
@@ -156,11 +155,7 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: ValidJ
       case e: XMLDocumentException =>
         fileStore ? FileServerMessage(fileBuilder, 0 , fileBuilder.size, jwt, fileId) map {_ =>
           InformalDocument(fileId.toString, fileName, meta.mediaType)
-        } recover {
-          case e: FileServerClientException => ParsingError(fileName, "")
         }
-      case e: ParserException => Future.successful(ParsingError(fileName, e.getErrorMessage))
-      case e: FileServerClientException => Future.successful(ParsingError(fileName, ""))
     }
   }
 
