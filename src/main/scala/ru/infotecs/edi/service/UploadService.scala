@@ -73,7 +73,7 @@ class UploadService(fileUploading: ActorRef) extends HttpServiceActor with Actor
 
   def receive = runRoute(uploadServiceRoute)
 
-  implicit val exceptionHanlder = ExceptionHandler {
+  implicit val exceptionHandler = ExceptionHandler {
     case e: ParserException => complete(BadRequest, ErrorMessage(e.getErrorMessage))
     case e: FileServerClientException => complete(InternalServerError)
     case e: Throwable => complete(InternalServerError)

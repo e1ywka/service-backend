@@ -38,7 +38,7 @@ object FileHandler {
  */
 abstract sealed class FileHandler(parent: ActorRef, dal: Dal, originalJwt: ValidJsonWebToken, meta: Meta) extends ActorLogging with Stash {
   implicit val ec = context.system.dispatcher
-  implicit val timeout = Timeout(3 seconds)
+  implicit val timeout = Timeout(10 seconds)
   var stopOnNextReceiveTimeout = false
   context.setReceiveTimeout(1 minute)
 
@@ -153,9 +153,10 @@ class FormalizedFileHandler(parent: ActorRef, implicit val dal: Dal, jwt: ValidJ
       }
     } recoverWith {
       case e: XMLDocumentException =>
-        fileStore ? FileServerMessage(fileBuilder, 0 , fileBuilder.size, jwt, fileId) map {_ =>
-          InformalDocument(fileId.toString, fileName, meta.mediaType)
-        }
+        for {
+          fileSavedId <- FileMetaInfo.saveFileMeta(fileId, dal, jwt.jwt, meta)
+          uploadResult <- fileStore ? FileServerMessage(fileBuilder, 0 , fileBuilder.size, jwt, fileSavedId)
+        } yield InformalDocument(fileId.toString, fileName, meta.mediaType)
     }
   }
 
