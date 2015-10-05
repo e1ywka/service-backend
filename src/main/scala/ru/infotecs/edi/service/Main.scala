@@ -23,7 +23,7 @@ object Main extends App {
   val settings = Settings(system)
 
   val fileUploading = system.actorOf(Props(classOf[FileUploading], dal))
-  val handler = system.actorOf(Props(classOf[UploadService], fileUploading))
+  val handler = system.actorOf(Props(classOf[UploadServiceActor], fileUploading))
 
   system.actorOf(Props(classOf[FileServerClientWatch]))
 
