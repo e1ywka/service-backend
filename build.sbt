@@ -2,7 +2,9 @@ name := "ru.infotecs.edi.service-backend"
 
 version := "1.0"
 
-scalaVersion := "2.11.6"
+scalaVersion := "2.11.7"
+
+val akkaVersion = "2.4.0"
 
 assemblyJarName in assembly := {
   val versionStr = version.value
@@ -10,6 +12,8 @@ assemblyJarName in assembly := {
 }
 
 mainClass in assembly := Some("ru.infotecs.edi.service.Main")
+
+fork in run := true
 
 resolvers += "spray repo" at "http://repo.spray.io"
 
@@ -21,11 +25,15 @@ libraryDependencies += "io.spray" %% "spray-json" % "1.3.2"
 
 libraryDependencies += "io.spray" %% "spray-testkit" % "1.3.3" % "test"
 
-libraryDependencies += "com.typesafe.akka" %% "akka-actor" % "2.3.11"
+libraryDependencies += "com.typesafe.akka" %% "akka-actor" % akkaVersion
 
-libraryDependencies += "com.typesafe.akka" %% "akka-slf4j" % "2.3.11"
+libraryDependencies += "com.typesafe.akka" %% "akka-slf4j" % akkaVersion
 
-libraryDependencies += "com.typesafe.akka" %% "akka-testkit" % "2.3.11"
+libraryDependencies += "com.typesafe.akka" %% "akka-testkit" % akkaVersion
+
+libraryDependencies += "com.typesafe.akka" %% "akka-cluster" % akkaVersion
+
+libraryDependencies += "com.typesafe.akka" %% "akka-cluster-tools" % akkaVersion
 
 libraryDependencies += "org.scalatest" %% "scalatest" % "2.2.4" % "test"
 

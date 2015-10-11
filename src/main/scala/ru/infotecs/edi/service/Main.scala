@@ -5,8 +5,9 @@ package ru.infotecs.edi.service
 
 import akka.actor.SupervisorStrategy.Restart
 import akka.actor._
-import akka.pattern._
+import akka.cluster.Cluster
 import akka.io.IO
+import akka.pattern._
 import akka.util.Timeout
 import ru.infotecs.edi.Settings
 import ru.infotecs.edi.db.PostgresDal
@@ -17,26 +18,41 @@ import scala.concurrent.duration._
 
 object Main extends App {
 
-  implicit val system = ActorSystem()
+  implicit val system = ActorSystem("UploadService")
+  val cluster = Cluster(system)
 
-  val dal = PostgresDal()
   val settings = Settings(system)
+  var http: ActorRef = ActorRef.noSender
+  val dal = PostgresDal()
 
-  val fileUploading = system.actorOf(Props(classOf[FileUploading], dal))
-  val handler = system.actorOf(Props(classOf[UploadServiceActor], fileUploading))
+  cluster.registerOnMemberUp {
 
-  system.actorOf(Props(classOf[FileServerClientWatch]))
+    val fileUploading = system.actorOf(Props(classOf[FileUploading], dal))
+    val handler = system.actorOf(Props(classOf[UploadServiceActor], fileUploading))
 
-  val http = system.actorOf(Props(classOf[GracefulHttpShutdown]))
+    system.actorOf(Props(classOf[FileServerClientWatch]))
 
-  http ! Http.Bind(handler, interface = settings.BindHost, port = settings.BindPort)
+    http = system.actorOf(Props(classOf[GracefulHttpShutdown]))
 
-  sys.addShutdownHook {
-    val unbindFuture = http.ask(Http.Unbind)(1 minute)
-    Await.ready(unbindFuture, Duration.Inf)
-    system.shutdown()
-    dal.database.close()
+    http ! Http.Bind(handler, interface = settings.BindHost, port = settings.BindPort)
   }
+
+  cluster.registerOnMemberRemoved {
+    implicit val ex = system.dispatcher
+    val systemShutdown = for {
+      unbind <- http.ask(Http.Unbind)(1 minute)
+      dbShutdown <- dal.database.shutdown
+      terminated <- system.terminate()
+    } yield {
+        terminated
+      }
+    Await.ready(systemShutdown, 1 minute)
+    System.exit(0)
+  }
+
+  /*sys.addShutdownHook {
+
+  }*/
 
   class FileServerClientWatch extends Actor with ActorLogging {
 
@@ -48,7 +64,7 @@ object Main extends App {
     def receive: Receive = {
       case Terminated(a) if a.equals(fileServerClient) => {
         log.error("FileServerClient terminated. Shutdown system.")
-        context.system.shutdown()
+        context.system.terminate()
       }
     }
 
@@ -74,7 +90,7 @@ object Main extends App {
                 (httpListener ? Http.Unbind) pipeTo sender() foreach(_ => {
                   context.unwatch(httpListener)
                 })
-              case Terminated(a) if a.equals(httpListener) => context.system.shutdown()
+              case Terminated(a) if a.equals(httpListener) => context.system.terminate()
             }
           }
         }
