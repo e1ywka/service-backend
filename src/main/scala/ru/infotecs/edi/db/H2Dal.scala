@@ -16,6 +16,6 @@ object H2Dal {
   )
 }
 
-class H2Dal private (val database: Database)(implicit val scheduler: Scheduler) extends Dal {
+class H2Dal private (val database: Database) extends Dal {
   val driver = H2Driver
 }

@@ -17,11 +17,9 @@ object FileMetaInfo {
     import dal._
     import dal.driver.api._
     val fileInfo = FileInfo(fileId, UUID.fromString(jwt.pid), fileName, size, sha256Hash)
-    withCircuitBreaker {
-      database.run(DBIO.seq(
-        fileInfos += fileInfo
-      ))
-    } map(_ => fileInfo.id)
+    database.run(DBIO.seq(
+      fileInfos += fileInfo
+    )) map(_ => fileInfo.id)
   }
 
   def saveFileMeta(fileId: UUID, dal: Dal, jwt: Jwt, meta: Meta)(implicit executionContext: ExecutionContext): Future[UUID] = {

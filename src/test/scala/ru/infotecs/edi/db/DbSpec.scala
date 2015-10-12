@@ -5,6 +5,7 @@ package ru.infotecs.edi.db
 
 import java.util.UUID
 
+import akka.actor.Scheduler
 import org.scalatest.{BeforeAndAfterAll, FlatSpec, Matchers}
 import slick.driver.H2Driver.api._
 
@@ -33,9 +34,7 @@ class DbSpec extends FlatSpec with Matchers with BeforeAndAfterAll {
       ins <- dal.database.run(
         dal.fileInfos += fileInfo
       )
-      savedFileInfo <- dal.withCircuitBreaker {
-        dal.database.run(dal.fileInfos.filter(_.id === fileInfo.id).result)
-      }
+      savedFileInfo <- dal.database.run(dal.fileInfos.filter(_.id === fileInfo.id).result)
     } yield savedFileInfo
     Await.ready(fi, Duration(1, "second"))
     fi.value match {
@@ -53,9 +52,7 @@ class DbSpec extends FlatSpec with Matchers with BeforeAndAfterAll {
       ins <- dal.database.run(
         dal.companies += company
       )
-      savedCompany <- dal.withCircuitBreaker {
-        dal.database.run(dal.companies.filter(_.id === company.id).result.headOption)
-      }
+      savedCompany <- dal.database.run(dal.companies.filter(_.id === company.id).result.headOption)
     } yield savedCompany
     Await.ready(c, Duration(1, "second"))
     c.value match {
