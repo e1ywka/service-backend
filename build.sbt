@@ -35,6 +35,10 @@ libraryDependencies += "com.typesafe.akka" %% "akka-cluster" % akkaVersion
 
 libraryDependencies += "com.typesafe.akka" %% "akka-cluster-tools" % akkaVersion
 
+libraryDependencies += "com.typesafe.akka" %% "akka-cluster-metrics" % akkaVersion
+
+libraryDependencies += "io.kamon" % "sigar-loader" % "1.6.6-rev002"
+
 libraryDependencies += "org.scalatest" %% "scalatest" % "2.2.4" % "test"
 
 libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.1.2"
